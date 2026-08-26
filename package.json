@@ -1,6 +1,6 @@
 {
   "name": "customs-compliance",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "author": {
     "name": "gitboycryptogeek",
@@ -74,6 +74,9 @@
         "deb"
       ],
       "category": "Office"
+    },
+    "deb": {
+      "afterInstall": "build/deb-postinstall.sh"
     },
     "win": {
       "target": [
