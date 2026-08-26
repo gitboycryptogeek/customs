@@ -1,0 +1,101 @@
+[
+  {
+    "name": "laptop — 0% duty (alias resolution)",
+    "query": "laptop",
+    "customsValue": 150000,
+    "importerType": "private",
+    "expect": {
+      "hsCode": "8471.30.00",
+      "method": "alias",
+      "lines": { "duty": 0, "idf": 3750, "rdl": 3000 },
+      "total": 6750,
+      "blocked": false
+    }
+  },
+  {
+    "name": "medicaments — 0% duty (zero-rated for duty)",
+    "query": "3004.90.00",
+    "customsValue": 100000,
+    "importerType": "private",
+    "expect": {
+      "hsCode": "3004.90.00",
+      "method": "exact",
+      "lines": { "duty": 0, "idf": 2500, "rdl": 2000 },
+      "total": 4500,
+      "blocked": false
+    }
+  },
+  {
+    "name": "cement — 35% duty",
+    "query": "2523.29.00",
+    "customsValue": 100000,
+    "importerType": "company",
+    "expect": {
+      "hsCode": "2523.29.00",
+      "method": "exact",
+      "lines": { "duty": 35000, "idf": 2500, "rdl": 2000 },
+      "total": 39500,
+      "blocked": false
+    }
+  },
+  {
+    "name": "electric motorcycle — 25% duty",
+    "query": "8711.60.00",
+    "customsValue": 200000,
+    "importerType": "private",
+    "expect": {
+      "hsCode": "8711.60.00",
+      "method": "exact",
+      "lines": { "duty": 50000, "idf": 5000, "rdl": 4000 },
+      "total": 59000,
+      "blocked": false
+    }
+  },
+  {
+    "name": "milk (sensitive item) — SI resolved to 60% via Schedule 2",
+    "query": "0401.10.00",
+    "customsValue": 80000,
+    "importerType": "company",
+    "expect": {
+      "hsCode": "0401.10.00",
+      "method": "exact",
+      "lines": { "duty": 48000, "idf": 2000, "rdl": 1600 },
+      "total": 51600,
+      "blocked": false,
+      "legalRefIncludes": "Schedule 2"
+    }
+  },
+  {
+    "name": "rice (sensitive, compound rate) — blocked, no total",
+    "query": "1006.30.00",
+    "customsValue": 500000,
+    "importerType": "company",
+    "expect": {
+      "hsCode": "1006.30.00",
+      "method": "exact",
+      "total": null,
+      "blocked": true,
+      "flagIncludes": "two-part rate"
+    }
+  },
+  {
+    "name": "full-text search resolves an unaliased description",
+    "query": "cement clinker",
+    "customsValue": 100000,
+    "importerType": "company",
+    "expect": {
+      "hsCode": "2523.10.00",
+      "method": "fulltext",
+      "lines": { "duty": 10000, "idf": 2500, "rdl": 2000 },
+      "total": 14500,
+      "blocked": false
+    }
+  },
+  {
+    "name": "unknown term is a logged miss, not a guess",
+    "query": "zzqx nonexistent widget 9999",
+    "customsValue": 100000,
+    "importerType": "private",
+    "expect": { "hsCode": null, "method": "miss" }
+  }
+]

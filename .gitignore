@@ -1,0 +1,18 @@
+node_modules/
+.next/
+out/
+*.log
+.DS_Store
+docs/tmp/
+scratch/
+
+# Local environment — never commit real connection strings. Use .env.example.
+.env
+
+# SQLite write-ahead/temp sidecars (the committed prisma/customs.db itself IS tracked).
+prisma/customs.db-journal
+prisma/*.db-shm
+prisma/*.db-wal
+
+# TypeScript incremental build cache
+*.tsbuildinfo

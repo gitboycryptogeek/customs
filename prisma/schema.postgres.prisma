@@ -1,0 +1,136 @@
+// Customs compliance data model — POSTGRES variant.
+// This file is the source of truth for the Postgres provider. The active
+// `schema.prisma` is produced from it (or from schema.sqlite.prisma) by
+// `scripts/select-schema.ts` based on DB_PROVIDER. Edit the variants, never the
+// generated schema.prisma directly.
+//
+// Design rules (see CLAUDE.md):
+//  - SourceVersion is append-only & immutable. contentHash dedupes.
+//  - Every Obligation carries legalRef + sourceVersionId (NOT NULL) and a
+//    validity window (effectiveFrom/effectiveTo). Never UPDATE/DELETE a version.
+//  - Nothing uncertain is silently coerced: rate is nullable, needsReview flags it.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Immutable record of one ingested document version. Never updated in place.
+model SourceVersion {
+  id            String    @id @default(cuid())
+  title         String
+  issuer        String
+  contentHash   String    @unique // sha256 of the source file — the dedupe key
+  docType       String // "A" | "B" | "C" | "D"
+  sourceFile    String? // served PDF filename under public/docs (for deep links)
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  supersedesId  String?
+  supersedes    SourceVersion?  @relation("Supersession", fields: [supersedesId], references: [id])
+  supersededBy  SourceVersion[] @relation("Supersession")
+  fetchedAt     DateTime  @default(now())
+
+  obligations Obligation[]
+  conditions  Condition[]
+  amendments  Amendment[]
+  chunks      Chunk[]
+
+  @@map("source_versions")
+}
+
+/// One row per money obligation. LONG table (one row per levy type), not wide.
+model Obligation {
+  id              String        @id @default(cuid())
+  sourceVersionId String
+  sourceVersion   SourceVersion @relation(fields: [sourceVersionId], references: [id])
+  hsPrefix        String // "" = applies to all goods; else 4/6/8-digit prefix. Longest match wins.
+  type            String // duty | vat | idf | rdl | excise
+  rate            Decimal?      @db.Decimal(10, 5) // fraction (0.16 = 16%). NULL when unknown (e.g. SI) -> needsReview.
+  specificRate    String? // free-form for non-ad-valorem rates (e.g. "KES 200/kg")
+  basis           String // customs_value | cif_plus_duty
+  legalRef        String // human-citable source, e.g. "Misc Fees & Levies Act Cap.469C s.7(2)"
+  sourcePage      Int? // 1-based page in the source PDF, for deep links. Null when unknown.
+  needsReview     Boolean       @default(false)
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+
+  amendments Amendment[]
+
+  @@index([hsPrefix])
+  @@index([type])
+  @@map("obligations")
+}
+
+/// Non-monetary requirements (PVoC, restrictions, exemptions).
+model Condition {
+  id                   String        @id @default(cuid())
+  sourceVersionId      String
+  sourceVersion        SourceVersion @relation(fields: [sourceVersionId], references: [id])
+  hsPrefix             String
+  conditionType        String // pvoc | exemption | restriction
+  detail               String
+  appliesToImporterType String? // null = all importer types
+  legalRef             String
+  sourcePage           Int? // 1-based page in the source PDF, for deep links. Null when unknown.
+  effectiveFrom        DateTime
+  effectiveTo          DateTime?
+
+  @@index([hsPrefix])
+  @@map("conditions")
+}
+
+/// Type C review queue. A Finance Act NEVER loads into obligations directly.
+/// A human decides which obligation each amendment changes.
+model Amendment {
+  sourceVersionId     String
+  sourceVersion       SourceVersion @relation(fields: [sourceVersionId], references: [id])
+  id                  String        @id @default(cuid())
+  targetAct           String
+  targetSection       String
+  operation           String // insert | delete | substitute | amend
+  text                String
+  effectiveFrom       DateTime?
+  reviewedBy          String?
+  appliedToObligationId String?
+  appliedToObligation Obligation?   @relation(fields: [appliedToObligationId], references: [id])
+
+  @@map("amendments")
+}
+
+/// Searchable text of every document. tsv is a generated tsvector column
+/// (added via raw SQL migration; Prisma only knows it as Unsupported).
+model Chunk {
+  id              String                 @id @default(cuid())
+  sourceVersionId String
+  sourceVersion   SourceVersion          @relation(fields: [sourceVersionId], references: [id])
+  sectionRef      String?
+  text            String
+  tsv             Unsupported("tsvector")?
+  ocrConfidence   Float?
+
+  @@map("chunks")
+}
+
+/// Human/algorithm-curated term -> HS code map. First-class search input.
+model Alias {
+  id         String  @id @default(cuid())
+  term       String  @unique
+  hsCode     String
+  confidence Float   @default(1.0)
+  addedBy    String  @default("seed")
+
+  @@map("aliases")
+}
+
+/// Every failed lookup. This log is the backlog for the alias table.
+model SearchMiss {
+  id        String   @id @default(cuid())
+  query     String
+  createdAt DateTime @default(now())
+
+  @@map("search_misses")
+}
