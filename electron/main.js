@@ -20,6 +20,28 @@ const path = require("node:path");
 
 const isDev = !app.isPackaged;
 
+// Linux launch hardening. Many Ubuntu machines have no usable GPU for Electron
+// (headless servers, VMs, remote desktops, or drivers Chromium rejects). When
+// the GPU process can't start, Chromium aborts the whole app with
+// "GPU process isn't usable. Goodbye." — which shows up as the window flashing
+// and closing on double-click. We render this simple form UI on the CPU, so we
+// turn hardware acceleration off and fall back to software rendering. We also
+// drop the Chromium sandbox on Linux: it only guards against untrusted web
+// content (we load our own localhost UI) and its SUID/user-namespace
+// requirements are another common cause of an instant exit (e.g. Ubuntu 24.04's
+// AppArmor restrictions on unprivileged user namespaces).
+app.disableHardwareAcceleration();
+if (process.platform === "linux") {
+  app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+  app.commandLine.appendSwitch("disable-software-rasterizer");
+  app.commandLine.appendSwitch("no-sandbox");
+  // Use /tmp instead of /dev/shm for Chromium's shared memory. Small or
+  // restricted /dev/shm (common in VMs, containers and some locked-down Ubuntu
+  // installs) otherwise crashes the renderer on startup.
+  app.commandLine.appendSwitch("disable-dev-shm-usage");
+}
+
 // In a packaged app the assembled Next standalone bundle lives under
 // resources/; in dev we run it straight from the project's .next/standalone.
 const projectRoot = path.join(__dirname, "..");
