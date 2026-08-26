@@ -59,6 +59,7 @@ async function main() {
       issuer: "East African Community",
       docType: "D",
       effectiveFrom: EFFECTIVE_FROM,
+      sourceFile: "routine-order-2026.pdf", // served from public/docs for deep links
     },
     dryRun
   );

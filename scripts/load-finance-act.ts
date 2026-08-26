@@ -84,6 +84,7 @@ async function main() {
       issuer: "Republic of Kenya",
       docType: "C",
       effectiveFrom: EFFECTIVE_FROM,
+      sourceFile: "finance-act-2026.pdf", // served from public/docs for deep links
     },
     dryRun
   );
