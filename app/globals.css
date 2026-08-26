@@ -139,3 +139,28 @@ a.ref { color: var(--brand-2); text-decoration: none; border-bottom: 1px dotted 
 a.ref:hover { color: var(--brand); border-bottom-style: solid; }
 a.ref .pg { font-family: var(--mono); font-size: 11px; color: var(--accent); margin-left: 4px; white-space: nowrap; }
 .charged { font-size: 13px; color: var(--muted); }
+
+/* Mode tabs (Ask in words / Use the form) */
+.tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
+.tab {
+  appearance: none; background: none; border: none; cursor: pointer;
+  padding: 8px 14px; font-size: 14px; font-weight: 600; color: var(--muted);
+  border-bottom: 2px solid transparent; margin-bottom: -1px; font-family: inherit;
+}
+.tab:hover { color: var(--ink); }
+.tab.active { color: var(--brand); border-bottom-color: var(--brand); }
+
+/* Action button row */
+.actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+button.go.secondary { background: #fff; color: var(--brand); border: 1px solid var(--brand); }
+button.go.secondary:hover { background: #eef4f9; }
+.actions .aside { font-size: 12px; color: var(--muted); }
+
+/* Search-the-law results */
+.search-summary { font-size: 14px; color: var(--muted); }
+.hit { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.hit:last-child { border-bottom: none; }
+.hit .snippet { font-size: 14.5px; color: var(--ink); }
+.hit .hs { font-family: var(--mono); font-weight: 700; color: var(--brand); margin-right: 8px; }
+.hit .hitref { margin-top: 6px; font-size: 12.5px; }
+.hit .src { color: var(--muted); }

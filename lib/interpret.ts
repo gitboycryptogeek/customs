@@ -28,10 +28,15 @@ const FILLER = [
 
 export function interpret(text: string): Interpretation {
   const raw = text.trim();
-  let working = ` ${raw.toLowerCase()} `;
+
+  // 0. A full HS code (dddd.dd.dd) is the unambiguous answer — capture it and
+  //    remove it from the text so its digits aren't mistaken for a value.
+  const hs = raw.match(/\b\d{4}\.\d{2}\.\d{2}\b/);
+  const scrubbed = hs ? raw.replace(hs[0], " ") : raw;
+  let working = ` ${scrubbed.toLowerCase()} `;
 
   // 1. Customs value.
-  const { value, matchStr } = extractValue(raw);
+  const { value, matchStr } = extractValue(scrubbed);
   if (matchStr) working = working.replace(matchStr.toLowerCase(), " ");
 
   // 2. Importer type.
@@ -41,11 +46,11 @@ export function interpret(text: string): Interpretation {
   // 3. Item phrase: strip currency words and filler, collapse whitespace.
   working = working.replace(/\b(kes|kshs?|ksh|shillings?|bob|sh)\b/gi, " ").replace(/\/=/g, " ");
   for (const f of FILLER) working = working.split(f).join(" ");
-  const itemQuery = working.replace(/[,.]/g, " ").replace(/\s+/g, " ").trim();
+  const itemPhrase = working.replace(/[,.]/g, " ").replace(/\s+/g, " ").trim();
 
   return {
     raw,
-    itemQuery: itemQuery || raw,
+    itemQuery: hs ? hs[0] : itemPhrase || raw,
     customsValue: value,
     importerType,
     importerExplicit,

@@ -112,6 +112,7 @@ async function main() {
         sourceVersionId: src.sourceVersionId,
         sectionRef: `p.${p.page}`,
         text: p.text,
+        sourcePage: p.page,
         ocrConfidence: p.confidence >= 0 ? p.confidence : null,
       })),
   });

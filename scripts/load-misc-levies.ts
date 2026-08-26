@@ -127,19 +127,23 @@ async function main() {
     })),
   });
 
-  // Chunk the full text for full-text search over the statute.
-  const text = pages.join("\f");
-  const paras = text
-    .split(/\n\s*\n/)
-    .map((p) => p.replace(/\s+/g, " ").trim())
-    .filter((p) => p.length > 40);
+  // Chunk the full text for full-text search over the statute, keeping the page
+  // each paragraph came from so "search the law" can deep-link to it.
+  const paras: { text: string; page: number }[] = [];
+  pages.forEach((pageText, idx) => {
+    for (const para of pageText.split(/\n\s*\n/)) {
+      const t = para.replace(/\s+/g, " ").trim();
+      if (t.length > 40) paras.push({ text: t, page: idx + 1 });
+    }
+  });
   const CHUNK = 500;
   for (let i = 0; i < paras.length; i += CHUNK) {
     await prisma.chunk.createMany({
       data: paras.slice(i, i + CHUNK).map((p) => ({
         sourceVersionId: src.sourceVersionId,
         sectionRef: "Cap.469C",
-        text: p,
+        text: p.text,
+        sourcePage: p.page,
       })),
     });
   }

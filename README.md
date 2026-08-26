@@ -15,9 +15,15 @@ can click to open.
 
 ## What it does
 
+- **Two ways to ask.** Use the **form** (a description or HS code + value +
+  importer type), or **ask in words** — a free-text box that takes a sentence, a
+  single word, an HS code, or a whole pasted paragraph.
 - **Ask in plain English.** "importing a used electric motorcycle worth 200,000"
   is read into `{ item, value, importer }` by simple pattern-matching (no AI) and
-  looked up. You can still type a bare HS code (`8471.30.00`) or a single word.
+  looked up.
+- **Search the law.** Paste a paragraph (e.g. copied from the Finance Act) and hit
+  *Search the law* to find where that text appears across the loaded documents —
+  each match links straight to its page in the PDF.
 - **Answers in plain English.** Every result opens with a short summary anyone can
   read, e.g. *"Import Duty: 0% of the goods' value = KES 0. Estimated total taxes
   and levies: KES 6,750."*

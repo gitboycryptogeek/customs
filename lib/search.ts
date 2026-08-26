@@ -136,6 +136,72 @@ const STOPWORDS = new Set([
   "please", "some", "any", "one", "new", "used",
 ]);
 
+export interface LawHit {
+  sourceTitle: string;
+  sourceFile: string | null;
+  page: number | null;
+  hsCode: string | null; // set when the chunk is a tariff line
+  snippet: string;
+  matched: number; // how many query keywords this chunk contains
+}
+
+/**
+ * "Search the law": find where a pasted paragraph or phrase appears in the loaded
+ * documents. Unlike item resolution this uses OR semantics — a chunk ranks by how
+ * many of the query's keywords it contains — because a pasted legal paragraph
+ * shares only some words with the provision you're after. Returns the best matches
+ * with their source and page so the UI can deep-link into the PDF. Deterministic,
+ * no model. Works the same on Postgres and SQLite (scored in-process over the
+ * small corpus, so no tsvector/LIKE dialect differences).
+ */
+export async function searchLaw(input: string, limit = 15): Promise<LawHit[]> {
+  const words = significantWords(input).slice(0, 30);
+  if (words.length === 0) return [];
+
+  const chunks = await prisma.chunk.findMany({
+    select: {
+      text: true,
+      sectionRef: true,
+      sourcePage: true,
+      sourceVersion: { select: { title: true, sourceFile: true } },
+    },
+  });
+
+  const scored = chunks
+    .map((c) => {
+      const t = c.text.toLowerCase();
+      const matched = words.filter((w) => t.includes(w)).length;
+      return { c, matched };
+    })
+    .filter((s) => s.matched > 0)
+    .sort((a, b) => b.matched - a.matched || a.c.text.length - b.c.text.length);
+
+  return scored.slice(0, limit).map(({ c, matched }) => {
+    const isHs = c.sectionRef && /^[0-9]{6,8}$/.test(c.sectionRef);
+    return {
+      sourceTitle: c.sourceVersion.title,
+      sourceFile: c.sourceVersion.sourceFile ?? null,
+      page: c.sourcePage ?? null,
+      hsCode: isHs ? formatHs(c.sectionRef as string) : null,
+      snippet: c.text.length > 400 ? c.text.slice(0, 397).trim() + "…" : c.text,
+      matched,
+    };
+  });
+}
+
+/** Significant lowercase words for matching: alphanumeric, >2 chars, not a stopword, de-duped. */
+function significantWords(input: string): string[] {
+  return [
+    ...new Set(
+      input
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((w) => w.length > 2 && !STOPWORDS.has(w))
+    ),
+  ];
+}
+
 async function descriptionFor(digits: string): Promise<string | null> {
   // Longest matching stored chunk description.
   for (const len of [8, 6, 4]) {

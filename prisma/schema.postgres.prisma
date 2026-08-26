@@ -109,6 +109,7 @@ model Chunk {
   sourceVersion   SourceVersion          @relation(fields: [sourceVersionId], references: [id])
   sectionRef      String?
   text            String
+  sourcePage      Int? // 1-based page in the source PDF, for deep links. Null when unknown.
   tsv             Unsupported("tsvector")?
   ocrConfidence   Float?
 

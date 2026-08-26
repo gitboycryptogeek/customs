@@ -272,6 +272,7 @@ async function main() {
           sourceVersionId: src.sourceVersionId,
           sectionRef: row.hsPrefix,
           text: row.description,
+          sourcePage: row.page,
         })),
       }),
     ]);
