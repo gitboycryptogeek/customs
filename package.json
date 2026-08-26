@@ -2,11 +2,22 @@
   "name": "customs-compliance",
   "version": "0.1.0",
   "private": true,
+  "author": {
+    "name": "gitboycryptogeek",
+    "email": "benvicky6133@gmail.com"
+  },
+  "main": "electron/main.js",
   "scripts": {
     "postinstall": "prisma generate",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "app:bundle": "npm run db:use sqlite && next build && tsx scripts/assemble-standalone.ts",
+    "app:dev": "npm run app:bundle && electron .",
+    "dist": "npm run app:bundle && electron-builder",
+    "dist:linux": "npm run app:bundle && electron-builder --linux",
+    "dist:win": "npm run app:bundle && electron-builder --win",
+    "dist:mac": "npm run app:bundle && electron-builder --mac",
     "db:use": "tsx scripts/select-schema.ts",
     "db:setup": "tsx scripts/db-setup.ts",
     "db:migrate": "prisma migrate dev",
@@ -29,8 +40,57 @@
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
     "prisma": "^6.1.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
+  },
+  "build": {
+    "appId": "com.customs.compliance",
+    "productName": "Customs Compliance",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".next/standalone",
+        "to": "standalone"
+      },
+      {
+        "from": "prisma/customs.db",
+        "to": "customs.db"
+      }
+    ],
+    "asar": true,
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.business"
+    }
   }
 }

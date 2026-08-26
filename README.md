@@ -35,6 +35,33 @@ can click to open.
 
 ---
 
+## Desktop app (double-click to run — no terminal)
+
+You can package the whole thing as a normal installable program with its own
+icon and window. No Node, no Postgres, no `npm run dev` — the built app bundles
+the server and the SQLite database inside it and runs fully offline.
+
+```bash
+npm install          # once
+npm run dist:linux   # -> release/Customs Compliance-0.1.0.AppImage  (+ .deb)
+npm run dist:win     # -> release/Customs Compliance-Setup-0.1.0.exe (build on/for Windows)
+npm run dist:mac     # -> release/*.dmg  (must be built on a Mac)
+```
+
+The installers land in `release/`. Hand someone the AppImage / `.exe` / `.dmg`
+and they double-click it — nothing else to install.
+
+- **`npm run app:dev`** builds the bundle and opens it in the desktop window
+  immediately (handy while iterating).
+- The app copies its database to a writable per-user folder on first launch, so
+  logged search misses persist between runs. Delete that file to reset.
+
+> Cross-platform note: `dist:win` and `dist:mac` need Prisma's per-OS query
+> engine, which `prisma generate` fetches once (see `binaryTargets` in the
+> schema). macOS installers can only be produced on a Mac.
+
+---
+
 ## Quick start (no database to install)
 
 This is the easiest way and needs **no Postgres and no PDF tools** — the repo

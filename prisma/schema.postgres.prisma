@@ -12,6 +12,9 @@
 
 generator client {
   provider = "prisma-client-js"
+  // Bundle the query-engine binary for every OS the desktop app ships to (see the
+  // sqlite variant for the rationale). Harmless for a server Postgres deployment.
+  binaryTargets = ["native", "windows", "darwin", "darwin-arm64"]
 }
 
 datasource db {

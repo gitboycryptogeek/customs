@@ -43,7 +43,9 @@ function main() {
 
   copyFileSync(variant, active);
   console.log(`Selected ${provider} schema -> prisma/schema.prisma`);
-  execFileSync("npx", ["prisma", "generate"], { stdio: "inherit" });
+  // shell:true so this works on Windows too, where `npx` is a .cmd that
+  // execFile can't launch directly (needed for the Windows CI desktop build).
+  execFileSync("npx", ["prisma", "generate"], { stdio: "inherit", shell: true });
 }
 
 // Only run when invoked directly (not when imported by other scripts).

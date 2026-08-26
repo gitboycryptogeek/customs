@@ -13,6 +13,11 @@
 
 generator client {
   provider = "prisma-client-js"
+  // Bundle the query-engine binary for every OS the desktop app ships to, so a
+  // Windows/macOS build produced from any machine still has its native engine.
+  // "native" covers the build host (Linux here). Building the Windows/macOS
+  // installers needs network access once so Prisma can fetch those engines.
+  binaryTargets = ["native", "windows", "darwin", "darwin-arm64"]
 }
 
 datasource db {

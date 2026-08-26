@@ -18,6 +18,27 @@ const ALIASES: { term: string; hsCode: string }[] = [
   { term: "motorcycle", hsCode: "8711.60.00" },
   { term: "electric motorcycle", hsCode: "8711.60.00" },
   { term: "rice", hsCode: "1006.30.00" },
+
+  // Vehicles (heading 87.03/87.04/87.02). A bare "car" is genuinely ambiguous —
+  // the exact subheading depends on fuel and engine capacity — so these resolve
+  // to the most common *representative* line (petrol saloon 1500–3000cc,
+  // assembled = 8703.23.90). The cited code is what drives the rate, so a tester
+  // refines it by entering the precise HS code; this just stops "car" landing on
+  // an unrelated full-text match. All codes verified present in the loaded CET.
+  { term: "car", hsCode: "8703.23.90" },
+  { term: "motor vehicle", hsCode: "8703.23.90" },
+  { term: "saloon car", hsCode: "8703.23.90" },
+  { term: "sedan", hsCode: "8703.23.90" },
+  { term: "station wagon", hsCode: "8703.23.90" },
+  { term: "suv", hsCode: "8703.24.90" },
+  { term: "diesel car", hsCode: "8703.32.90" },
+  { term: "pickup", hsCode: "8704.21.90" },
+  { term: "pick-up", hsCode: "8704.21.90" },
+  { term: "truck", hsCode: "8704.22.90" },
+  { term: "lorry", hsCode: "8704.22.90" },
+  { term: "bus", hsCode: "8702.10.19" },
+  { term: "minibus", hsCode: "8702.10.19" },
+  { term: "matatu", hsCode: "8702.10.19" },
 ];
 
 async function main() {

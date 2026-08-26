@@ -1,0 +1,70 @@
+name: Build desktop apps
+
+# Builds the clickable installers on real Windows/macOS/Linux runners.
+#  - Run manually (Actions tab -> "Build desktop apps" -> Run workflow) to get
+#    downloadable artifacts.
+#  - Push a version tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`) to also
+#    publish the installers to a GitHub Release with a shareable download link.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # needed to create the Release on a tag push
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+          - os: macos-latest
+            name: macos
+          - os: ubuntu-latest
+            name: linux
+    runs-on: ${{ matrix.os }}
+    env:
+      DB_PROVIDER: sqlite
+      DATABASE_URL: "file:./customs.db"
+      # Don't attempt macOS code-signing on CI (no certificate) — ship unsigned.
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Build the Next.js standalone bundle + assemble it (static, PDFs, engines).
+      - run: npm run app:bundle
+
+      # Package into the host OS's installer (.exe / .dmg / .AppImage + .deb).
+      - run: npx electron-builder --publish never
+
+      - name: Upload installers as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: customs-${{ matrix.name }}
+          if-no-files-found: ignore
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+            release/*.deb
+
+      - name: Attach installers to the Release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+            release/*.deb
