@@ -1,0 +1,17 @@
+{
+  "name": "customs-compliance-site",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Download and update page for the Customs Compliance desktop app",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test-release.js"
+  },
+  "engines": {
+    "node": "20.x"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

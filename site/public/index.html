@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Customs Compliance — download</title>
+<meta name="description" content="Look up every duty, levy and condition on an import, with each figure citing its legal source and page. Free desktop app for Windows, macOS and Linux.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23DFE3D6'/><rect x='5' y='7' width='22' height='3' fill='%238C2F2A'/><rect x='5' y='14' width='16' height='2' fill='%2316191C'/><rect x='5' y='19' width='19' height='2' fill='%2316191C'/><rect x='5' y='24' width='11' height='2' fill='%2316191C'/></svg>">
+<style>
+/* ---------------------------------------------------------------------------
+   Customs Compliance download page.
+
+   The visual language is the one this tool actually lives in: a multi-part
+   customs declaration form. Carbon-copy green-grey ground, near-white entry
+   fields, oxblood for the revenue-stamp accent, and a marginal annotation rail
+   down the right — the device Kenyan and EAC legislation uses for
+   cross-references, and the same one the app has to strip out of scanned Acts
+   before it can read them.
+--------------------------------------------------------------------------- */
+
+:root {
+  --paper:     #DFE3D6;
+  --paper-2:   #D2D7C6;
+  --field:     #F8F9F3;
+  --ink:       #16191C;
+  --ink-soft:  #5C636B;
+  --ink-faint: #868D95;
+  --stamp:     #8C2F2A;
+  --verify:    #1D5847;
+  --rule:      #B4B8AB;
+  --rule-fine: #C8CBC0;
+
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body:    "Public Sans", "Segoe UI", system-ui, sans-serif;
+  --mono:    "IBM Plex Mono", ui-monospace, Consolas, monospace;
+
+  --measure: 60ch;
+  --rail: 13rem;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+a { color: var(--stamp); text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible {
+  outline: 2px solid var(--stamp);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+/* --- Sheet: content column plus marginal annotation rail ------------------ */
+
+.sheet {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: 0 1.5rem 5rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--rail);
+  column-gap: 3rem;
+  align-items: start;
+}
+.block { grid-column: 1; min-width: 0; }
+.note  { grid-column: 2; }
+.full  { grid-column: 1 / -1; }
+
+/* The marginal note: small, quiet, with a hairline leader reaching back to the
+   text it annotates — how the source Acts set their own cross-references. */
+.note {
+  position: relative;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  padding-top: 3.1rem;
+}
+.note::before {
+  content: "";
+  position: absolute;
+  top: 3.55rem;
+  left: -3rem;
+  width: 3rem;
+  border-top: 1px solid var(--rule);
+}
+.note b { font-weight: 600; color: var(--ink); }
+
+@media (max-width: 900px) {
+  .sheet { grid-template-columns: minmax(0, 1fr); }
+  .note { grid-column: 1; padding-top: 0; margin: 1.5rem 0 0; border-left: 2px solid var(--rule); padding-left: .9rem; }
+  .note::before { display: none; }
+}
+
+/* --- Masthead ------------------------------------------------------------- */
+
+.masthead {
+  border-bottom: 2px solid var(--ink);
+  padding: 1.1rem 0 .8rem;
+  margin-bottom: 3.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .5rem 1.25rem;
+}
+.wordmark {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  margin: 0;
+}
+.issuer {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin: 0 0 0 auto;
+}
+
+/* --- Hero ----------------------------------------------------------------- */
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--stamp);
+  margin: 0 0 1.1rem;
+}
+h1 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(2.1rem, 5.4vw, 3.5rem);
+  line-height: 1.05;
+  letter-spacing: -.02em;
+  margin: 0 0 1.1rem;
+  max-width: 18ch;
+}
+h1 em {
+  font-style: normal;
+  display: block;
+  color: var(--stamp);
+}
+.standfirst {
+  font-size: 1.14rem;
+  line-height: 1.55;
+  max-width: var(--measure);
+  margin: 0 0 2.2rem;
+}
+
+/* --- The receipt: the page's thesis --------------------------------------- */
+
+.receipt {
+  background: var(--field);
+  border: 1px solid var(--rule);
+  box-shadow: 3px 3px 0 var(--paper-2);
+  max-width: 46rem;
+  margin: 0 0 2.4rem;
+}
+.receipt-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem 1rem;
+  align-items: baseline;
+  padding: .85rem 1.1rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-2);
+}
+.receipt-head .hs { font-family: var(--mono); font-weight: 600; font-size: .95rem; }
+.receipt-head .desc { font-size: .86rem; color: var(--ink-soft); }
+.receipt-head .val { margin-left: auto; font-family: var(--mono); font-size: .85rem; }
+
+table.lines { width: 100%; border-collapse: collapse; font-size: .9rem; }
+table.lines th {
+  text-align: left;
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 10.5px;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: .6rem 1.1rem .35rem;
+  border-bottom: 1px solid var(--rule-fine);
+  white-space: nowrap;
+}
+table.lines td { padding: .62rem 1.1rem; border-bottom: 1px solid var(--rule-fine); vertical-align: top; }
+table.lines .num { text-align: right; font-family: var(--mono); white-space: nowrap; }
+table.lines .charge { font-weight: 500; }
+
+/* Rows settle in one at a time, the way the app resolves them. */
+.lines tbody tr { opacity: 0; animation: settle .45s ease-out forwards; }
+.lines tbody tr:nth-child(1) { animation-delay: .15s; }
+.lines tbody tr:nth-child(2) { animation-delay: .45s; }
+.lines tbody tr:nth-child(3) { animation-delay: .75s; }
+.lines tbody tr:nth-child(4) { animation-delay: 1.15s; }
+@keyframes settle { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .lines tbody tr { opacity: 1; animation: none; }
+}
+
+.cite {
+  display: inline-flex;
+  align-items: baseline;
+  gap: .4rem;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--verify);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(29,88,71,.35);
+}
+.cite .pg { color: var(--ink-faint); }
+.cite:hover { border-bottom-color: var(--verify); }
+
+tr.total td {
+  border-bottom: none;
+  border-top: 2px solid var(--ink);
+  font-weight: 600;
+  padding-top: .8rem;
+  padding-bottom: .9rem;
+}
+
+/* The refusal panel — the product's actual argument. */
+.refusal {
+  max-width: 46rem;
+  margin: 0 0 2.6rem;
+  border: 1px solid var(--stamp);
+  border-left-width: 4px;
+  background: rgba(140,47,42,.05);
+  padding: .95rem 1.15rem;
+}
+.refusal h2 {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--stamp);
+  margin: 0 0 .4rem;
+}
+.refusal p { margin: 0; font-size: .93rem; line-height: 1.55; max-width: none; }
+.blocked {
+  font-family: var(--mono);
+  background: var(--stamp);
+  color: var(--field);
+  padding: 0 .35rem;
+  font-size: .85em;
+}
+
+/* --- Download ------------------------------------------------------------- */
+
+.get { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 1.4rem; }
+
+.btn {
+  display: inline-flex;
+  flex-direction: column;
+  gap: .08rem;
+  background: var(--ink);
+  color: var(--field);
+  text-decoration: none;
+  padding: .85rem 1.6rem;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 1.05rem;
+  transition: background .15s ease, transform .15s ease;
+}
+.btn:hover { background: var(--stamp); transform: translateY(-1px); }
+.btn .sub { font-family: var(--mono); font-weight: 400; font-size: 11px; letter-spacing: .05em; opacity: .78; }
+@media (prefers-reduced-motion: reduce) { .btn:hover { transform: none; } }
+
+.alt { font-size: .87rem; color: var(--ink-soft); margin: 0; }
+.alt a { margin-right: .85rem; white-space: nowrap; }
+
+/* --- Sections ------------------------------------------------------------- */
+
+.block + .block, .note + .block { margin-top: 4rem; }
+
+.block h2 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.5rem;
+  letter-spacing: -.01em;
+  margin: 0 0 .35rem;
+}
+.section-rule { border: 0; border-top: 2px solid var(--ink); margin: 0 0 1.3rem; }
+.block p { max-width: var(--measure); }
+.block h3 { font-family: var(--display); font-weight: 600; font-size: 1.02rem; margin: 1.9rem 0 .3rem; }
+
+/* Numbered because this genuinely is a sequence someone follows in order. */
+ol.steps { max-width: var(--measure); margin: 1.2rem 0 0; padding: 0; list-style: none; counter-reset: s; }
+ol.steps li {
+  counter-increment: s;
+  position: relative;
+  padding: 0 0 1rem 2.6rem;
+  font-size: .96rem;
+}
+ol.steps li::before {
+  content: counter(s, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: .12rem;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--stamp);
+}
+kbd {
+  font-family: var(--mono);
+  font-size: .84em;
+  background: var(--field);
+  border: 1px solid var(--rule);
+  padding: .05rem .38rem;
+}
+
+/* Unnumbered: these are not a sequence. */
+ul.features { list-style: none; margin: 1.2rem 0 0; padding: 0; max-width: var(--measure); }
+ul.features li { padding: .9rem 0; border-top: 1px solid var(--rule-fine); }
+ul.features li:last-child { border-bottom: 1px solid var(--rule-fine); }
+ul.features b { font-family: var(--display); font-weight: 600; display: block; margin-bottom: .1rem; }
+ul.features span { font-size: .94rem; color: var(--ink-soft); }
+
+/* --- Downloads table ------------------------------------------------------ */
+
+.dl { width: 100%; border-collapse: collapse; font-size: .9rem; margin-top: 1.1rem; }
+.dl th {
+  text-align: left;
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 10.5px;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: .5rem .9rem .4rem 0;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.dl td { padding: .7rem .9rem .7rem 0; border-bottom: 1px solid var(--rule-fine); vertical-align: top; }
+.dl .file { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); word-break: break-all; }
+.dl .size { font-family: var(--mono); white-space: nowrap; }
+.dl .sub { font-size: .81rem; color: var(--ink-soft); }
+.scroll-x { overflow-x: auto; }
+
+.tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  padding: .1rem .42rem;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.tag.auto { color: var(--verify); }
+.tag.manual { color: var(--stamp); }
+
+.notes {
+  background: var(--field);
+  border: 1px solid var(--rule);
+  padding: 1rem 1.2rem;
+  max-width: var(--measure);
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  max-height: 22rem;
+  overflow: auto;
+}
+
+footer {
+  border-top: 2px solid var(--ink);
+  margin-top: 4.5rem;
+  padding-top: 1.1rem;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: .04em;
+  color: var(--ink-soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1.5rem;
+}
+footer .right { margin-left: auto; }
+</style>
+</head>
+<body>
+
+<div class="sheet">
+
+  <header class="masthead full">
+    <p class="wordmark">Customs Compliance</p>
+    <p class="issuer" id="version-stamp">Checking latest release…</p>
+  </header>
+
+  <!-- ===================== HERO ===================== -->
+  <section class="block">
+    <p class="eyebrow">Duty, levy &amp; condition lookup — EAC / Kenya</p>
+    <h1>Every figure carries<em>the page it came from.</em></h1>
+    <p class="standfirst">
+      Type what you are importing in plain English and get back every duty, levy and
+      condition that applies — each line linked to the exact page of the official PDF it
+      was read from. The arithmetic is ordinary code, not a language model, so the same
+      question always gives the same answer.
+    </p>
+
+    <div class="receipt">
+      <div class="receipt-head">
+        <span class="hs">8471.30.00</span>
+        <span class="desc">Portable automatic data processing machines</span>
+        <span class="val">KES 150,000</span>
+      </div>
+      <div class="scroll-x">
+        <table class="lines">
+          <caption class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">
+            Example assessment for a laptop worth 150,000 shillings.
+          </caption>
+          <thead>
+            <tr><th>Charge</th><th class="num">Rate</th><th class="num">Amount (KES)</th><th>Source</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="charge">Import Duty</td>
+              <td class="num">0%</td>
+              <td class="num">0</td>
+              <td><span class="cite">EAC CET 2022 <span class="pg">p.460</span></span></td>
+            </tr>
+            <tr>
+              <td class="charge">Import Declaration Fee</td>
+              <td class="num">2.5%</td>
+              <td class="num">3,750</td>
+              <td><span class="cite">Cap. 469C s.7(2) <span class="pg">p.12</span></span></td>
+            </tr>
+            <tr>
+              <td class="charge">Railway Development Levy</td>
+              <td class="num">2%</td>
+              <td class="num">3,000</td>
+              <td><span class="cite">Cap. 469C s.8(2) <span class="pg">p.13</span></span></td>
+            </tr>
+            <tr class="total">
+              <td>Total</td><td class="num"></td><td class="num">6,750</td><td></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="refusal">
+      <h2>And when it cannot be sure</h2>
+      <p>
+        Ask it about rice and it stops. The tariff gives a two-part rate — 75%, or a fixed
+        amount per tonne, whichever is higher — and settling that needs the quantity. So the
+        total reads <span class="blocked">needs officer</span> and the breakdown shows only
+        what is known. A blank an officer fills in is recoverable. A plausible wrong rate
+        is not.
+      </p>
+    </div>
+
+    <div class="get">
+      <a class="btn" id="primary-download" href="/download/windows">
+        <span id="primary-label">Download for Windows</span>
+        <span class="sub" id="primary-sub">free · no account</span>
+      </a>
+      <p class="alt" id="alt-platforms">
+        <a href="/download/macos">macOS</a>
+        <a href="/download/linux">Linux AppImage</a>
+        <a href="#downloads">all files</a>
+      </p>
+    </div>
+  </section>
+
+  <aside class="note">
+    <b>No account, no server.</b><br>
+    It runs entirely on your machine. The tariff and the source PDFs are inside the app, and
+    nothing you type leaves it.
+  </aside>
+
+  <!-- ===================== WINDOWS WARNING ===================== -->
+  <section class="block" id="install">
+    <h2>Windows will warn you. Here is why.</h2>
+    <hr class="section-rule">
+    <p>
+      These builds are not code-signed — a certificate costs a few hundred dollars a year and
+      this is a free tool. Windows does not recognise the publisher, so SmartScreen shows a
+      blue box the first time you run the installer. The file is the one GitHub built from
+      the source, and you can check its SHA-256 against the release.
+    </p>
+    <ol class="steps">
+      <li>Run the downloaded <b>Customs Compliance-Setup</b> file.</li>
+      <li>On the blue <b>“Windows protected your PC”</b> screen, click <kbd>More info</kbd>. It is a small link, easy to miss.</li>
+      <li>Click <kbd>Run anyway</kbd>.</li>
+      <li>Choose where to install it. That is the last question — the app carries its own database and needs nothing else installed.</li>
+    </ol>
+  </section>
+
+  <aside class="note">
+    <b>On macOS</b><br>
+    Right-click the app and choose Open the first time instead of double-clicking. Gatekeeper
+    allows it that way.
+  </aside>
+
+  <!-- ===================== WHAT IT DOES ===================== -->
+  <section class="block">
+    <h2>What you get</h2>
+    <hr class="section-rule">
+    <ul class="features">
+      <li>
+        <b>Ask in words, or fill in the form</b>
+        <span>“a laptop worth 150,000 for my company”, a bare HS code like 2523.29.00, or a
+        pasted paragraph — all of them reach the same lookup.</span>
+      </li>
+      <li>
+        <b>Search the law</b>
+        <span>Paste a passage to find where it appears across every loaded document, with each
+        hit opening the source PDF at the right page.</span>
+      </li>
+      <li>
+        <b>Answers in plain English</b>
+        <span>Every result opens with a sentence anyone can read, before the table that shows
+        the working behind it.</span>
+      </li>
+      <li>
+        <b>It flags rather than guesses</b>
+        <span>Sensitive items, two-part rates and superseded sources are marked, and no total
+        is shown that rests on one of them.</span>
+      </li>
+    </ul>
+  </section>
+
+  <aside class="note">
+    <b>Loaded already</b><br>
+    EAC Common External Tariff 2022 (rev. Jun 2025) · Miscellaneous Fees and Levies Act
+    Cap. 469C · Finance Act 2026 · EAC Gazette Routine Order No.2
+  </aside>
+
+  <!-- ===================== ADD DOCUMENTS ===================== -->
+  <section class="block">
+    <h2>Add your own documents</h2>
+    <hr class="section-rule">
+    <p>
+      Drop in a folder of PDFs — a hundred at a time — and the app reads them where it stands.
+      Scanned documents are recognised automatically. Nothing has to be installed alongside it,
+      and it never goes online to do the work.
+    </p>
+    <p>
+      Everything you add becomes searchable and page-linked straight away. Where a document is
+      a rate schedule, the app proposes the rows it found and puts them in a review queue with
+      the source passage beside each one. <b>Nothing reaches an assessment until a person
+      approves it.</b> Reading a table is a job for software; deciding what the law says is not.
+    </p>
+  </section>
+
+  <aside class="note">
+    <b>Roughly how long</b><br>
+    A PDF with a text layer takes seconds. A scan has to be read a page at a time — budget two
+    to four seconds a page, so about fifteen minutes for a 300-page Act. It runs in the
+    background.
+  </aside>
+
+  <!-- ===================== DOWNLOADS ===================== -->
+  <section class="block" id="downloads">
+    <h2>All downloads</h2>
+    <hr class="section-rule">
+    <div class="scroll-x">
+      <table class="dl">
+        <thead>
+          <tr><th>Platform</th><th>File</th><th>Size</th><th>Updates</th></tr>
+        </thead>
+        <tbody id="downloads-body">
+          <tr><td colspan="4" class="sub">Loading release…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>What is new</h3>
+    <div class="notes" id="release-notes">Loading release notes…</div>
+  </section>
+
+  <aside class="note">
+    <b>Verify a download</b><br><br>
+    Windows PowerShell<br>
+    Get-FileHash &lt;file&gt;<br><br>
+    macOS and Linux<br>
+    shasum -a 256 &lt;file&gt;<br><br>
+    Compare it with the digest on the GitHub release.
+  </aside>
+
+  <!-- ===================== UPDATES ===================== -->
+  <section class="block">
+    <h2>Keeping it current</h2>
+    <hr class="section-rule">
+    <p>
+      On Windows and the Linux AppImage the app checks for a new version shortly after it
+      starts and then every few hours, downloads it in the background, and offers to restart.
+      You can force a check from <b>Help → Check for updates</b>. Your database, the documents
+      you added and your logged searches all survive an update.
+    </p>
+    <p>
+      macOS is the exception. Apple requires an update to be signed by a registered developer
+      before it will install one, and these builds are not signed — so the Mac app tells you
+      when a new version exists and sends you back here to fetch it.
+    </p>
+  </section>
+
+  <aside class="note">
+    <b>Installed from a .deb?</b><br>
+    That copy belongs to your package manager. Install the newer .deb, or switch to the
+    AppImage if you would rather it updated itself.
+  </aside>
+
+  <footer class="full">
+    <span>Deterministic rules engine — no model decides a rate</span>
+    <span>No analytics, no tracking, no account</span>
+    <span class="right"><a href="https://github.com/gitboycryptogeek/customs">Source on GitHub</a></span>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // Injected by the server so the page is complete on first paint. Falls back to
+  // an API call if this file is ever served statically.
+  var latest = /*__LATEST__*/null;
+
+  var PLATFORMS = [
+    { key: "windows",   label: "Windows",        path: "/download/windows", updates: "auto",   note: "10 and 11, 64-bit" },
+    { key: "macos",     label: "macOS",          path: "/download/macos",   updates: "manual", note: "11 Big Sur or newer" },
+    { key: "linux",     label: "Linux AppImage", path: "/download/linux",   updates: "auto",   note: "any modern distribution" },
+    { key: "linux-deb", label: "Linux .deb",     path: "/download/deb",     updates: "manual", note: "Debian, Ubuntu" }
+  ];
+
+  function detectPlatform() {
+    var p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+    var ua = navigator.userAgent || "";
+    if (/mac/i.test(p) || /Macintosh/i.test(ua)) return "macos";
+    if (/linux/i.test(p) || /Linux|X11/i.test(ua)) return "linux";
+    return "windows";
+  }
+
+  function el(tag, className, text) {
+    var n = document.createElement(tag);
+    if (className) n.className = className;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function renderStamp(data) {
+    var stamp = document.getElementById("version-stamp");
+    if (!data.version) {
+      stamp.textContent = data.unavailable ? "Release information unavailable" : "No published release yet";
+      return;
+    }
+    var when = data.publishedAt
+      ? new Date(data.publishedAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+      : "";
+    stamp.textContent = "Version " + data.version + (when ? " · " + when : "");
+  }
+
+  function renderPrimary(data) {
+    var mine = detectPlatform();
+    var def = PLATFORMS.filter(function (p) { return p.key === mine; })[0] || PLATFORMS[0];
+    var asset = data.assets && data.assets[def.key];
+
+    document.getElementById("primary-download").href = def.path;
+    document.getElementById("primary-label").textContent = "Download for " + def.label;
+    document.getElementById("primary-sub").textContent =
+      (asset && asset.size ? asset.size + " · " : "") + "free · no account";
+
+    // The other platforms stay listed so nobody has to hunt for the build they need.
+    var alt = document.getElementById("alt-platforms");
+    alt.textContent = "";
+    PLATFORMS.forEach(function (p) {
+      if (p.key === def.key || p.key === "linux-deb") return;
+      var a = el("a", null, p.label);
+      a.href = p.path;
+      alt.appendChild(a);
+    });
+    var all = el("a", null, "all files");
+    all.href = "#downloads";
+    alt.appendChild(all);
+  }
+
+  function renderDownloads(data) {
+    var body = document.getElementById("downloads-body");
+    body.textContent = "";
+    var any = false;
+
+    PLATFORMS.forEach(function (p) {
+      var a = data.assets && data.assets[p.key];
+      if (!a) return;
+      any = true;
+
+      var tr = el("tr");
+      var td1 = el("td");
+      var link = el("a", null, p.label);
+      link.href = p.path;
+      td1.appendChild(link);
+      td1.appendChild(el("div", "sub", p.note));
+      tr.appendChild(td1);
+      tr.appendChild(el("td", "file", a.name));
+      tr.appendChild(el("td", "size", a.size || ""));
+      var td4 = el("td");
+      td4.appendChild(el("span", "tag " + p.updates, p.updates === "auto" ? "automatic" : "manual"));
+      tr.appendChild(td4);
+      body.appendChild(tr);
+    });
+
+    if (!any) {
+      var tr = el("tr");
+      var td = el("td", "sub", data.unavailable
+        ? "Could not reach GitHub just now — open the releases page for the files."
+        : "No installers published yet.");
+      td.colSpan = 4;
+      tr.appendChild(td);
+      body.appendChild(tr);
+    }
+
+    document.getElementById("release-notes").textContent =
+      (data.notes || "").trim() || "No release notes for this version.";
+  }
+
+  function render(data) {
+    if (!data) return;
+    renderStamp(data);
+    renderPrimary(data);
+    renderDownloads(data);
+  }
+
+  if (latest) {
+    render(latest);
+  } else {
+    fetch("/api/latest")
+      .then(function (r) { return r.json(); })
+      .then(render)
+      .catch(function () {
+        document.getElementById("version-stamp").textContent = "Release information unavailable";
+      });
+  }
+})();
+</script>
+</body>
+</html>

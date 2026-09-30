@@ -2,9 +2,12 @@ name: Build desktop apps
 
 # Builds the clickable installers on real Windows/macOS/Linux runners.
 #  - Run manually (Actions tab -> "Build desktop apps" -> Run workflow) to get
-#    downloadable artifacts.
-#  - Push a version tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`) to also
-#    publish the installers to a GitHub Release with a shareable download link.
+#    downloadable artifacts without touching a Release.
+#  - Push a version tag (e.g. `git tag v0.2.0 && git push origin v0.2.0`) to
+#    publish to a GitHub Release. On a tag build electron-builder also writes
+#    the `latest.yml` / `latest-linux.yml` update feeds beside the installers —
+#    those files are what electron-updater reads, and the landing page links to
+#    the assets. Without them the app cannot self-update.
 on:
   workflow_dispatch:
   push:
@@ -14,8 +17,62 @@ on:
 permissions:
   contents: write # needed to create the Release on a tag push
 
+env:
+  DB_PROVIDER: sqlite
+  DATABASE_URL: "file:./customs.db"
+
 jobs:
+  # The database is a build output, not a committed file — a repo that ships its
+  # own SQLite database makes one artifact serve as build input, test fixture and
+  # the dev app's live store at once, and anything a user ingested through the
+  # Documents page ended up staged for a public commit. It is built once here,
+  # from the four published-law PDFs, and handed to the platform builds.
+  database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Building it means OCRing 111 scanned pages, so cache on everything that
+      # can change what the loaders produce. A miss costs 5-10 minutes; a hit
+      # costs seconds, and most runs are a hit.
+      - name: Cache the built database
+        id: db-cache
+        uses: actions/cache@v4
+        with:
+          path: prisma/customs.db
+          key: customs-db-${{ hashFiles('public/docs/**', 'scripts/load-*.ts', 'scripts/build-db.ts', 'scripts/seed-aliases.ts', 'scripts/migrate.ts', 'lib/pdf/**', 'lib/ingest/**', 'prisma/schema.sqlite.prisma', 'prisma/app-migrations/**') }}
+
+      # db:build gates itself against fixtures/baseline.json and refuses to
+      # promote a database that does not reproduce it, so a drifted parser fails
+      # here rather than shipping.
+      - name: Build the database from the source PDFs
+        if: steps.db-cache.outputs.cache-hit != 'true'
+        run: npm run db:build
+
+      # Guard rails, run once rather than per platform — both are parser checks,
+      # not platform checks. Parity reads fixtures/baseline.json and the CET PDF;
+      # the fixtures need a database, which is why they live in this job.
+      - name: Verify PDF toolchain parity
+        run: npx tsx scripts/verify-parity.ts
+
+      - name: Run regression fixtures
+        run: npm test
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: customs-db
+          path: prisma/customs.db
+          retention-days: 1
+
   build:
+    needs: database
     strategy:
       fail-fast: false
       matrix:
@@ -28,9 +85,9 @@ jobs:
             name: linux
     runs-on: ${{ matrix.os }}
     env:
-      DB_PROVIDER: sqlite
-      DATABASE_URL: "file:./customs.db"
-      # Don't attempt macOS code-signing on CI (no certificate) — ship unsigned.
+      # No code-signing certificate: ship unsigned. Windows shows a SmartScreen
+      # warning (the landing page walks users through it) and macOS builds
+      # cannot self-update, which the in-app updater handles explicitly.
       CSC_IDENTITY_AUTO_DISCOVERY: false
     steps:
       - uses: actions/checkout@v4
@@ -42,11 +99,38 @@ jobs:
 
       - run: npm ci
 
-      # Build the Next.js standalone bundle + assemble it (static, PDFs, engines).
+      # electron-builder copies prisma/customs.db into the installer as
+      # extraResources, and `next build` prerenders pages that query it.
+      - name: Fetch the database built upstream
+        uses: actions/download-artifact@v4
+        with:
+          name: customs-db
+          path: prisma
+
+      # Build the Next.js standalone bundle + assemble it (static, PDFs,
+      # Prisma engines, pdf.js/tesseract.js/canvas).
       - run: npm run app:bundle
 
-      # Package into the host OS's installer (.exe / .dmg / .AppImage + .deb).
-      - run: npx electron-builder --publish never
+      # Tag builds publish to the Release, which is what generates the update
+      # feed. Manual runs package only and are collected as artifacts below.
+      - name: Package and publish (tag builds)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: npx electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package only (manual runs)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        run: npx electron-builder --publish never
+
+      # The database is not in the repo, so `npm run db:fetch` pulls it from the
+      # release — that is what makes a fresh clone runnable without a 10-minute
+      # OCR run. Uploaded from one platform only; it is the same file on all three.
+      - name: Attach the database to the release
+        if: startsWith(github.ref, 'refs/tags/') && matrix.os == 'ubuntu-latest'
+        run: gh release upload "${GITHUB_REF_NAME}" prisma/customs.db --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload installers as artifacts
         uses: actions/upload-artifact@v4
@@ -58,13 +142,4 @@ jobs:
             release/*.dmg
             release/*.AppImage
             release/*.deb
-
-      - name: Attach installers to the Release (tag builds only)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            release/*.exe
-            release/*.dmg
-            release/*.AppImage
-            release/*.deb
+            release/latest*.yml

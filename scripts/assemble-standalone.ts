@@ -11,7 +11,7 @@
  *
  * Run automatically by `npm run app:build` after `next build`.
  */
-import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -37,6 +37,23 @@ function main() {
   // 2. Prisma generated client + native query engines (all bundled OS targets).
   copy(join(root, "node_modules", ".prisma"), join(standalone, "node_modules", ".prisma"), ".prisma/client + engines");
   copy(join(root, "node_modules", "@prisma", "client"), join(standalone, "node_modules", "@prisma", "client"), "@prisma/client");
+
+  // 3. The PDF toolchain. Next's tracer cannot follow these: pdf.js and
+  //    tesseract.js are loaded by dynamic import (so the graph is not static),
+  //    and @napi-rs/canvas resolves a prebuilt .node at runtime. Without them
+  //    the packaged app can open the four bundled documents but cannot read a
+  //    single one the user adds — which is the whole feature.
+  for (const pkg of ["pdfjs-dist", "tesseract.js", "tesseract.js-core"]) {
+    copy(join(root, "node_modules", pkg), join(standalone, "node_modules", pkg), pkg);
+  }
+
+  //    @napi-rs/canvas ships its binary in a per-platform package installed as
+  //    an optional dependency, so copy whichever ones this machine resolved.
+  //    CI builds each installer on its own runner, so each gets its own.
+  const napiDir = join(root, "node_modules", "@napi-rs");
+  for (const entry of readdirSync(napiDir)) {
+    copy(join(napiDir, entry), join(standalone, "node_modules", "@napi-rs", entry), `@napi-rs/${entry}`);
+  }
 
   console.log("Standalone bundle ready at .next/standalone");
 }

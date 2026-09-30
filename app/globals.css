@@ -164,3 +164,242 @@ button.go.secondary:hover { background: #eef4f9; }
 .hit .hs { font-family: var(--mono); font-weight: 700; color: var(--brand); margin-right: 8px; }
 .hit .hitref { margin-top: 6px; font-size: 12.5px; }
 .hit .src { color: var(--muted); }
+
+/* ===========================================================================
+   Documents library, ingest progress and the review queue.
+   =========================================================================== */
+
+.masthead a { color: var(--brand-2); }
+
+/* --- Drop target --------------------------------------------------------- */
+
+.dropzone {
+  display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center;
+  border: 2px dashed var(--line); border-radius: 10px; padding: 28px 20px; cursor: pointer;
+  background: #fbfcfd; transition: border-color .15s ease, background .15s ease;
+}
+.dropzone:hover, .dropzone.over { border-color: var(--brand-2); background: #f4f8fc; }
+.dropzone:focus-visible { outline: 2px solid var(--brand-2); outline-offset: 2px; }
+.dropzone strong { font-size: 15px; }
+.dropzone span { font-size: 13px; color: var(--muted); max-width: 52ch; }
+
+.filelist { margin-top: 14px; font-size: 13px; }
+.filelist p { margin: 0 0 4px; font-weight: 600; color: var(--muted); }
+.filelist ul { margin: 0; padding-left: 18px; color: var(--muted); }
+.linkbtn {
+  margin-left: 10px; background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--brand-2); font: inherit; font-weight: 500; text-decoration: underline;
+}
+
+/* --- Ingest progress ----------------------------------------------------- */
+
+.job { padding: 12px 0; border-top: 1px solid var(--line); }
+.job:first-of-type { border-top: none; }
+.jobhead { display: flex; gap: 12px; align-items: baseline; }
+.jobname { font-weight: 600; font-size: 14px; word-break: break-all; }
+.jobstage {
+  margin-left: auto; font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--muted); white-space: nowrap;
+}
+.job.ready .jobstage { color: var(--accent); }
+.job.failed .jobstage { color: var(--high); }
+.bar { height: 4px; background: var(--line); border-radius: 2px; margin: 8px 0 5px; overflow: hidden; }
+.fill { height: 100%; background: var(--brand-2); transition: width .3s ease; }
+.jobnote { font-size: 13px; color: var(--muted); }
+.jobnote.err { color: var(--high); }
+
+/* --- Library table ------------------------------------------------------- */
+
+.tablewrap { overflow-x: auto; }
+table.docs { font-size: 13px; }
+table.docs td { vertical-align: top; }
+.doctitle { display: block; font-weight: 600; font-size: 14px; }
+.doctitle a { color: var(--ink); }
+.docmeta { display: block; font-size: 12px; color: var(--muted); }
+.docmeta.err { color: var(--high); }
+tr.retired { opacity: .62; }
+.counts { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+.counts em {
+  font-style: normal; font-size: 11px; font-family: var(--mono);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px;
+  white-space: nowrap;
+}
+.counts em.pending { border-color: var(--med); color: var(--med); background: var(--med-bg); }
+.counts em.pending a { color: inherit; text-decoration: none; }
+.disk { font-weight: 400; color: var(--muted); text-transform: none; letter-spacing: 0; }
+.empty { color: var(--muted); font-size: 14px; padding: 14px 0; }
+
+/* --- Per-document actions ------------------------------------------------ */
+
+/* Stacked rather than inline: "Remove" sitting beside "Read again" at the end
+   of a dense row is a mis-click away from deleting a tariff. */
+.rowactions { white-space: nowrap; text-align: right; }
+.rowactions .linkbtn { display: block; margin: 0 0 4px auto; }
+.rowactions .linkbtn:last-child { margin-bottom: 0; }
+.linkbtn:disabled { color: var(--muted); cursor: default; text-decoration: none; }
+.linkbtn.danger { color: var(--high); }
+
+.tag {
+  margin-left: 8px; font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--brand-2); background: #eef4f9;
+  border: 1px solid #cfe0ee; border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+}
+
+/* --- Removal confirmation ------------------------------------------------ */
+
+/* Deliberately loud. This is the only screen in the app that destroys a source
+   version, and it should not look like an ordinary card. */
+.card.confirm { border-color: var(--high); border-left-width: 4px; }
+.card.confirm p { font-size: 14px; margin: 0 0 10px; }
+.card.confirm .warn {
+  background: var(--high-bg); border: 1px solid #fbd5d2; border-radius: 8px;
+  padding: 10px 12px; color: var(--high); font-size: 13px;
+}
+ul.losses { margin: 0 0 12px; padding-left: 20px; font-size: 13.5px; color: var(--ink); }
+ul.losses li { margin-bottom: 3px; }
+button.go.danger { background: var(--high); }
+button.go.danger:hover { background: #921a12; }
+button.go:disabled, button.go.danger:disabled { background: var(--muted); cursor: default; }
+
+/* --- Review queue -------------------------------------------------------- */
+
+.reviewbar { display: grid; grid-template-columns: 2fr 1fr auto; gap: 12px; align-items: end; }
+@media (max-width: 720px) { .reviewbar { grid-template-columns: 1fr; } }
+.reviewactions { display: flex; gap: 8px; }
+button.go.secondary { background: #fff; color: var(--brand); border: 1px solid var(--line); }
+button.go.secondary:hover { background: var(--bg); }
+button.go:disabled { opacity: .5; cursor: not-allowed; }
+
+.selectall { display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; margin: 0; }
+.selectall input { width: auto; }
+
+.staged { display: flex; gap: 12px; padding: 14px 0; border-top: 1px solid var(--line); }
+.staged.picked { background: #f4f8fc; }
+.stagedpick input { width: auto; margin-top: 3px; }
+.stagedbody { min-width: 0; flex: 1; }
+.stagedhead { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; margin-bottom: 5px; }
+.stagedhead .kind {
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; color: var(--muted);
+}
+.stagedhead .proposal { font-weight: 600; font-size: 14px; }
+.stagedsnippet {
+  font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--ink);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px 10px; white-space: pre-wrap; word-break: break-word;
+  max-height: 8.5em; overflow: auto;
+}
+.stagedref { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin-top: 5px; font-size: 12px; }
+.stagedref .parser { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+/* --- Unmatched searches --------------------------------------------------- */
+
+.miss-row {
+  display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+  padding: 12px 0; border-top: 1px solid var(--line);
+}
+.miss-row:first-of-type { border-top: none; }
+.miss-row.done { opacity: .6; }
+.missq { flex: 1; min-width: 220px; }
+.qtext { display: block; font-weight: 600; font-size: 14px; }
+.qmeta { display: block; font-size: 12px; color: var(--muted); }
+.missfix { display: flex; gap: 8px; align-items: center; }
+.missfix input { width: 150px; font-family: var(--mono); font-size: 14px; }
+.missfix button { padding: 9px 14px; font-size: 14px; }
+.resolved-to { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+
+/* ---------- AI briefing & settings ---------- */
+/* The one feature that talks to the network, so it is styled to sit apart from
+   the deterministic result above it rather than to blend in with it. */
+
+.card.briefing { border-left: 3px solid var(--accent); }
+.brief-lead { font-size: 13.5px; color: var(--muted); margin: 0 0 12px; line-height: 1.55; }
+
+.egress-note { font-size: 13px; margin-bottom: 14px; }
+.egress-note summary { cursor: pointer; color: var(--brand-2); font-weight: 600; }
+.egress-note summary:hover { text-decoration: underline; }
+.egress-note ul { margin: 10px 0 8px; padding-left: 20px; color: var(--muted); }
+.egress-note li { margin-bottom: 4px; }
+.egress-note p { margin: 0; color: var(--muted); }
+.egress-note code { font-family: var(--mono); font-size: 12px; background: #eef2f6; padding: 1px 5px; border-radius: 4px; }
+
+.brief-controls { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.brief-controls > div { flex: 1 1 240px; }
+
+.verify-ok, .verify-bad { font-size: 13.5px; padding: 10px 12px; border-radius: 8px; margin-top: 16px; line-height: 1.5; }
+.verify-ok { background: #e6f4ef; border: 1px solid #b7e0d0; color: #0a5c43; }
+.verify-bad { background: var(--high-bg); border: 1px solid #fecdca; color: var(--high); }
+.verify-bad code { font-family: var(--mono); font-size: 12px; background: #fff; padding: 1px 5px; border-radius: 4px; }
+
+.brief-body { margin-top: 14px; font-size: 15px; line-height: 1.6; }
+.brief-head { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted); margin: 18px 0 6px; }
+.brief-head:first-child { margin-top: 0; }
+.brief-p { margin: 0 0 8px; }
+.brief-list { margin: 0 0 8px; padding-left: 20px; }
+.brief-list li { margin-bottom: 4px; }
+
+/* Settings */
+.settings-lead { font-size: 14px; color: var(--muted); line-height: 1.6; margin: 0 0 14px; }
+.settings-lead code { font-family: var(--mono); font-size: 12.5px; background: #eef2f6; padding: 1px 5px; border-radius: 4px; }
+
+.egress { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 16px; }
+.egress-col { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: #fbfcfd; }
+.egress-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 8px; }
+.egress-head.yes { color: var(--accent); }
+.egress-head.no { color: var(--high); }
+.egress-col ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.egress-col li { margin-bottom: 5px; }
+
+.toggle-row { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+
+@media (max-width: 640px) {
+  .egress { grid-template-columns: 1fr; }
+}
+
+/* ---------- Audit mode ---------- */
+/* Findings are not results. They are things for a person to check, and the
+   styling keeps them visibly separate from the assessment's own figures. */
+
+.brief-modes { font-size: 12.5px; color: var(--muted); margin: 10px 0 0; line-height: 1.5; }
+
+.audit-summary { margin-top: 16px; padding: 12px 14px; background: #f0f4f8; border: 1px solid var(--line); border-radius: 8px; }
+.audit-lead { margin: 0; font-size: 15px; line-height: 1.55; }
+.audit-stats { margin: 8px 0 0; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.findings { margin-top: 14px; display: grid; gap: 10px; }
+.finding { border: 1px solid var(--line); border-left-width: 3px; border-radius: 8px; padding: 11px 13px; background: #fff; }
+.finding.high { border-left-color: var(--high); }
+.finding.medium { border-left-color: var(--med); }
+.finding.low { border-left-color: var(--line); }
+.finding.confirms { border-left-color: var(--accent); }
+
+.finding-head { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.fkind { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.fsev { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 4px; }
+.fsev.high { color: var(--high); background: var(--high-bg); border: 1px solid #fecdca; }
+.fsev.medium { color: var(--med); background: var(--med-bg); border: 1px solid #fedf89; }
+.fsev.low { color: var(--muted); background: #f0f4f8; border: 1px solid var(--line); }
+
+.fstatement { margin: 0 0 6px; font-size: 14.5px; line-height: 1.55; }
+.faction { margin: 0 0 4px; font-size: 13.5px; color: var(--ink); }
+.fproposal { margin: 6px 0 4px; font-size: 13px; color: var(--accent); }
+.fcite { margin: 4px 0 0; font-size: 11px; color: var(--muted); font-family: var(--mono); }
+
+.dropped { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
+.dropped li { margin-bottom: 4px; }
+.dreason { color: var(--muted); font-style: italic; }
+
+table.querylog { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+table.querylog td { padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.querylog tr:last-child td { border-bottom: none; }
+.qname { font-family: var(--mono); font-weight: 600; color: var(--brand); white-space: nowrap; }
+.qargs { font-family: var(--mono); color: var(--muted); word-break: break-all; }
+.qrows, .qms { text-align: right; white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* An AI proposal in the review queue must never be mistaken for a parser's. */
+.ai-badge {
+  display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--med); background: var(--med-bg);
+  border: 1px solid #fedf89; padding: 1px 6px; border-radius: 4px; margin-left: 6px;
+}

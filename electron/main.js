@@ -9,14 +9,25 @@
 //      Node runtime — nothing needs to be installed on the machine.
 //   3. Opens a native window pointing at that local server once it's ready.
 //
-// There is no telemetry and no network access: everything is served from the
-// bundled SQLite file and the local server.
+// There is no telemetry. The app is offline by default: the lookup, the tariff,
+// the search and every figure in an assessment are served from the bundled
+// SQLite file and the local server, and none of it needs a connection.
+//
+// One feature can reach the network, and only after somebody switches it on
+// under Settings and supplies an API key: the AI briefing (lib/ai/) sends a
+// deterministic assessment to Anthropic's API and gets prose back. It never
+// sends the officer's typed sentence or any trader identifier, and it decides
+// nothing — see the note in CLAUDE.md. With no key configured the app behaves
+// exactly as it did before that feature existed.
 
 const { app, BrowserWindow, shell, dialog } = require("electron");
 const { spawn } = require("node:child_process");
 const { createServer, connect } = require("node:net");
 const fs = require("node:fs");
 const path = require("node:path");
+
+const { startAutoUpdates, checkForUpdates, DOWNLOAD_PAGE } = require("./updater");
+const { buildMenu } = require("./menu");
 
 const isDev = !app.isPackaged;
 
@@ -50,6 +61,27 @@ const standaloneDir = isDev
   : path.join(process.resourcesPath, "standalone");
 
 const serverEntry = path.join(standaloneDir, "server.js");
+
+/**
+ * Check the server bundle is actually there before trying to spawn it.
+ *
+ * `next dev` and `next build` both own `.next/`, so running `npm run dev`
+ * replaces the assembled standalone bundle this app needs. Launching with
+ * `electron .` afterwards then spawns a file that does not exist: the child dies
+ * silently, and the only symptom is "Server did not start within 30000ms" thirty
+ * seconds later, which says nothing about the cause. Fail immediately and say
+ * what to run instead.
+ */
+function assertServerBundle() {
+  if (fs.existsSync(serverEntry)) return;
+  throw new Error(
+    isDev
+      ? "The app bundle is missing from .next/standalone.\n\n" +
+        "Running `npm run dev` replaces .next, which removes it.\n\n" +
+        "Use `npm run app:dev` to rebuild the bundle and open the app."
+      : `The app bundle is missing (expected ${serverEntry}). This install looks incomplete — reinstall the app.`
+  );
+}
 
 let serverProcess = null;
 let mainWindow = null;
@@ -106,7 +138,28 @@ function ensureWritableDatabase() {
   return "file:" + userDbPath;
 }
 
+/**
+ * Where source PDFs a user adds are kept.
+ *
+ * The four documents that ship with the app live inside the read-only bundle;
+ * anything added afterwards cannot, so it goes here. The server is told the
+ * path so it can serve those files back for the page-linked citations.
+ */
+function docsDir() {
+  const dir = path.join(app.getPath("userData"), "docs");
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** Bundled OCR language data, so scanned documents work with nothing installed. */
+function tessdataDir() {
+  return isDev
+    ? path.join(projectRoot, "vendor", "tessdata")
+    : path.join(process.resourcesPath, "tessdata");
+}
+
 async function startServer() {
+  assertServerBundle();
   serverPort = await findFreePort();
   const databaseUrl = ensureWritableDatabase();
 
@@ -121,19 +174,43 @@ async function startServer() {
       DATABASE_URL: databaseUrl,
       PORT: String(serverPort),
       HOSTNAME: "127.0.0.1",
+      // Writable store for user-added source PDFs, and the OCR language data.
+      // Both must be absolute: the server runs with cwd inside the bundle.
+      DOCS_DIR: docsDir(),
+      TESSDATA_PATH: tessdataDir(),
+      // Where the AI briefing's settings file is kept. Same reasoning as
+      // DOCS_DIR: the bundle is read-only, and the key belongs to this user.
+      SETTINGS_DIR: app.getPath("userData"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
   serverProcess.stdout.on("data", (d) => console.log(`[next] ${d}`));
   serverProcess.stderr.on("data", (d) => console.error(`[next] ${d}`));
+  let exitedEarly = null;
   serverProcess.on("exit", (code) => {
-    if (code && code !== 0 && !app.isQuitting) {
-      dialog.showErrorBox("Customs Compliance", `The app server stopped unexpectedly (exit ${code}).`);
+    if (!app.isQuitting && code && code !== 0) {
+      exitedEarly = code;
+      if (mainWindow) {
+        dialog.showErrorBox("Customs Compliance", `The app server stopped unexpectedly (exit ${code}).`);
+      }
     }
   });
 
-  await waitForPort(serverPort);
+  // Race the readiness check against the process dying, so a server that fails
+  // to boot reports that in a second rather than after a 30s port timeout.
+  await Promise.race([
+    waitForPort(serverPort),
+    new Promise((_, reject) => {
+      const poll = setInterval(() => {
+        if (exitedEarly !== null) {
+          clearInterval(poll);
+          reject(new Error(`The app server exited immediately (code ${exitedEarly}). Check the log above.`));
+        }
+      }, 200);
+      setTimeout(() => clearInterval(poll), 31000);
+    }),
+  ]);
 }
 
 function createWindow() {
@@ -178,9 +255,13 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    buildMenu({ checkForUpdates, downloadPage: DOWNLOAD_PAGE, docsDir });
     try {
       await startServer();
       createWindow();
+      // Only once the app is actually usable — a failed start should surface as
+      // a start failure, not as an update dialog on top of a dead window.
+      startAutoUpdates();
     } catch (err) {
       dialog.showErrorBox("Customs Compliance", `Failed to start:\n\n${err && err.message ? err.message : err}`);
       app.quit();

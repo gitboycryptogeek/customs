@@ -1,7 +1,11 @@
 import { prisma } from "./db";
 import { hsPrefixes, hsDigits, isFullHsCode } from "./hs";
 import { levyLabel, basisLabel, ratePct, money, shortDescription } from "./labels";
+import { Prisma } from "@prisma/client";
 import type { Obligation } from "@prisma/client";
+
+/** Exact decimal arithmetic for money. Ships with Prisma; no extra dependency. */
+const Decimal = Prisma.Decimal;
 
 export type ImporterType = "private" | "company" | "government" | "ngo" | string;
 
@@ -97,7 +101,16 @@ export async function assess(
     if (top.length > 1) conflictedTypes.add(type);
   }
   const lines: AssessLine[] = [];
-  let runningBase = customsValue; // for cif_plus_duty accumulation
+  // Money is computed in exact decimal, not binary floating point.
+  //
+  // These figures are meant to survive a trader's legal challenge, and a levy
+  // charged on "the value plus the duty already added" compounds whatever error
+  // the line above it carried. 0.1 + 0.2 is famously not 0.3 in binary; a duty
+  // schedule is full of rates like 2.5% that have no exact binary form. Decimal
+  // arithmetic removes the question entirely, and the conversion to a plain
+  // number happens once, at the JSON boundary.
+  let runningBase = new Decimal(customsValue); // for cif_plus_duty accumulation
+  const value = new Decimal(customsValue);
 
   const orderedTypes = [
     ...TYPE_ORDER.filter((t) => bestByType.has(t)),
@@ -106,9 +119,12 @@ export async function assess(
 
   for (const type of orderedTypes) {
     const o = bestByType.get(type)!;
-    const rate = o.rate === null ? null : Number(o.rate);
-    const base = o.basis === "cif_plus_duty" ? runningBase : customsValue;
-    const amount = rate === null ? null : round2(rate * base);
+    // Prisma hands back a Decimal; keep it exact rather than widening to float.
+    const rateDecimal = o.rate === null ? null : new Decimal(o.rate.toString());
+    const rate = rateDecimal === null ? null : rateDecimal.toNumber();
+    const base = o.basis === "cif_plus_duty" ? runningBase : value;
+    const amountDecimal = rateDecimal === null ? null : rateDecimal.times(base).toDecimalPlaces(2);
+    const amount = amountDecimal === null ? null : amountDecimal.toNumber();
     const conflicted = conflictedTypes.has(type);
     const needsReview = o.needsReview || rate === null || conflicted;
     if (conflicted) {
@@ -131,7 +147,9 @@ export async function assess(
       needsReview,
     });
 
-    if (amount !== null && o.basis !== "cif_plus_duty") runningBase += amount;
+    if (amountDecimal !== null && o.basis !== "cif_plus_duty") {
+      runningBase = runningBase.plus(amountDecimal);
+    }
 
     if (rate === null) {
       flags.push({
@@ -192,7 +210,10 @@ export async function assess(
   const hasBlocker = lines.some((l) => l.needsReview || l.amount === null);
   let total: number | null = null;
   if (lines.length > 0 && !hasBlocker) {
-    total = round2(lines.reduce((s, l) => s + (l.amount ?? 0), 0));
+    total = lines
+      .reduce((sum, l) => sum.plus(l.amount ?? 0), new Decimal(0))
+      .toDecimalPlaces(2)
+      .toNumber();
   } else if (hasBlocker) {
     const which = lines.filter((l) => l.needsReview || l.amount === null).map((l) => levyLabel(l.type));
     flags.push({
@@ -242,8 +263,4 @@ async function descriptionFor(digits: string): Promise<string | null> {
     if (chunk) return chunk.text;
   }
   return null;
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
 }

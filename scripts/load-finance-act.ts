@@ -8,30 +8,19 @@
  * auto-apply an amendment to the rates table — that is legal interpretation and
  * silently getting it wrong is this system's worst failure mode.
  *
- * This particular Finance Act 2026 PDF is a scan (Type B extraction): pdffonts
- * is empty, pdftotext yields ~0 chars. We rasterize (pdftoppm -r 150) and OCR
- * (tesseract), storing ocr_confidence per chunk. Marginal annotations garble —
- * we ignore the margins; body text OCRs cleanly.
+ * This Finance Act is a scan: OCR runs automatically (rasterise with pdf.js,
+ * recognise with tesseract.js) and per-page confidence is stored on each chunk.
+ * The marginal note column is removed before parsing — see lib/pdf/margins.
  *
  * Usage:  npx tsx scripts/load-finance-act.ts ./Finance*.pdf [--dry-run]
  */
 import { prisma } from "../lib/db";
-import { ocrPdf, tesseractAvailable, hasTextLayer } from "./lib/pdf";
+import { extractDocument } from "../lib/pdf";
+import { parseAmendments } from "../lib/ingest/parsers/amending-act";
+import { ocrAvailable } from "./lib/pdf";
 import { ensureSourceVersion, parseArgs } from "./lib/source";
 
-const EFFECTIVE_FROM = new Date("2026-07-01"); // Finance Act 2026 typical commencement
-
-// Statutory amendment sentence: "Section N of the X Act is amended by <op>ing ..."
-const AMENDMENT =
-  /Section\s+([0-9]+[A-Z]?(?:\([0-9A-Za-z]+\))?)\s+(?:of\s+the\s+(.+?Act(?:,?\s*\d{4})?)\s+)?is\s+amended\s+by\s+([a-z]+ing)\b([^.]*\.)/gi;
-
-function classifyOperation(word: string): string {
-  const w = word.toLowerCase();
-  if (w.startsWith("insert") || w.startsWith("add")) return "insert";
-  if (w.startsWith("delet") || w.startsWith("repeal")) return "delete";
-  if (w.startsWith("substitut") || w.startsWith("replac")) return "substitute";
-  return "amend";
-}
+const EFFECTIVE_FROM = new Date("2026-07-01"); // Finance Act 2026 commencement
 
 async function main() {
   const { file, dryRun } = parseArgs(process.argv);
@@ -39,41 +28,35 @@ async function main() {
     console.error("usage: tsx scripts/load-finance-act.ts <file.pdf> [--dry-run]");
     process.exit(1);
   }
-  if (!tesseractAvailable()) {
-    console.error(
-      "tesseract not installed. Run: sudo apt install -y tesseract-ocr\n" +
-        "(This is the only blocker for the two scanned PDFs. See memory/ocr-blocker.md)"
-    );
+  if (!ocrAvailable()) {
+    console.error("OCR language data missing — expected vendor/tessdata/eng.traineddata.gz.");
     process.exit(1);
   }
 
   console.log(`Finance Act loader ${dryRun ? "(dry run) " : ""}— ${file}`);
-  console.log(hasTextLayer(file) ? "  (note: text layer present)" : "  Scanned — running OCR (pdftoppm + tesseract)…");
+  const doc = await extractDocument(file, {
+    onProgress: (stage, page, total) => {
+      if (page === 1 || page % 10 === 0) console.log(`  ${stage} page ${page}/${total}`);
+    },
+  });
+  console.log(
+    `  Read ${doc.pageCount} pages via ${doc.method}` +
+      (doc.meanOcrConfidence !== null ? `, mean confidence ${(doc.meanOcrConfidence * 100).toFixed(1)}%` : "") +
+      (doc.recoveredWords > 0 ? `, ${doc.recoveredWords} words recovered from skipped regions` : "")
+  );
 
-  const pages = ocrPdf(file, 150);
-  const fullText = pages.map((p) => p.text).join("\n");
-  const meanConf = pages.reduce((s, p) => s + (p.confidence >= 0 ? p.confidence : 0), 0) / pages.length;
-  console.log(`  OCR'd ${pages.length} pages, mean confidence ${(meanConf * 100).toFixed(1)}%`);
+  const { amendments, stats } = parseAmendments(doc.pages);
+  console.log(
+    `  Extracted ${amendments.length} candidate amendments of ${stats.amendmentMentions} ` +
+      `"is amended" mentions; margin column removed on ${stats.pagesWithMarginStripped}/${stats.pagesSeen} pages.`
+  );
 
-  // Extract amendment sentences for the review queue.
-  const amendments: { targetAct: string; targetSection: string; operation: string; text: string }[] = [];
-  for (const m of fullText.matchAll(AMENDMENT)) {
-    const section = m[1].trim();
-    const act = (m[2] ?? "").trim() || "(unspecified — review)";
-    const op = classifyOperation(m[3]);
-    const text = `Section ${section}${m[2] ? ` of the ${act}` : ""} is amended by ${m[3]}${m[4]}`
-      .replace(/\s+/g, " ")
-      .trim();
-    amendments.push({ targetAct: act, targetSection: `Section ${section}`, operation: op, text });
-  }
-
-  console.log(`  Extracted ${amendments.length} candidate amendments for the review queue.`);
   if (dryRun) {
     for (const a of amendments.slice(0, 10)) {
-      console.log(`  [${a.operation}] ${a.targetSection} — ${a.targetAct}`);
+      console.log(`  [${a.operation}] ${a.targetSection} — ${a.targetAct}  (p.${a.page})`);
       console.log(`     ${a.text.slice(0, 100)}`);
     }
-    console.log("Dry run — nothing written. Remember: amendments are NEVER auto-applied to obligations.");
+    console.log("Dry run — nothing written. Amendments are NEVER auto-applied to obligations.");
     return;
   }
 
@@ -105,20 +88,21 @@ async function main() {
     })),
   });
 
-  // Store OCR'd pages as chunks with confidence (skip marginal-only garbage pages).
+  // Store the page text as chunks with confidence (skip near-empty pages).
   await prisma.chunk.createMany({
-    data: pages
+    data: doc.pageText
+      .map((text, i) => ({ text, page: i + 1 }))
       .filter((p) => p.text.trim().length > 40)
       .map((p) => ({
         sourceVersionId: src.sourceVersionId,
         sectionRef: `p.${p.page}`,
         text: p.text,
         sourcePage: p.page,
-        ocrConfidence: p.confidence >= 0 ? p.confidence : null,
+        ocrConfidence: doc.meanOcrConfidence,
       })),
   });
 
-  console.log(`Inserted ${amendments.length} amendments (UNREVIEWED) + ${pages.length} OCR chunks.`);
+  console.log(`Inserted ${amendments.length} amendments (UNREVIEWED) + page chunks.`);
   console.log("Next step is HUMAN: review the amendments queue and decide obligation changes.");
 }
 

@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+
 import { levyLabel, basisLabel, ratePct, money } from "@/lib/labels";
 
 interface Line {
@@ -58,19 +60,127 @@ interface Hit {
   matched: number;
 }
 
+interface Verification {
+  ok: boolean;
+  unsupported: string[];
+  checked: number;
+}
+interface Briefing {
+  mode: "brief";
+  reportId: string;
+  model: string;
+  report: string;
+  evidence: unknown;
+  verification: Verification;
+}
+interface Finding {
+  kind: "confirms" | "discrepancy" | "addition" | "stale" | "unreviewed";
+  severity: "high" | "medium" | "low";
+  statement: string;
+  citations: string[];
+  officerAction: string;
+  proposal?: { kind: string; hsPrefix: string; legalRef: string; reason: string };
+}
+interface Audit {
+  mode: "audit";
+  reportId: string;
+  model: string;
+  summary: string;
+  findings: Finding[];
+  dropped: { statement: string; reason: string }[];
+  proposals: { created: number; skipped: { statement: string; reason: string }[] };
+  stats: { turns: number; queries: number; rowsRead: number; truncated: boolean };
+  queries: { name: string; input: Record<string, unknown>; rowCount: number; ms: number; error: string | null }[];
+}
+interface AiStatus {
+  ready: boolean;
+  model: string;
+  includeAddedDocuments: boolean;
+}
+
+/** How a finding is introduced to an officer. The model's kind, in their words. */
+const FINDING_LABEL: Record<string, string> = {
+  confirms: "confirms the assessment",
+  discrepancy: "competing record",
+  addition: "not shown in the assessment",
+  stale: "superseded source",
+  unreviewed: "waiting on a person",
+};
+
 type Mode = "words" | "form";
 
-/** A legal reference — a link that opens the source PDF at the exact page when we know it. */
+/**
+ * A legal reference — a link that opens the source PDF at the exact page.
+ *
+ * Routed through /api/doc rather than straight at /docs because documents a
+ * user adds live outside the app bundle, and both kinds have to cite the same
+ * way.
+ */
 function Ref({ legalRef, sourceFile, page }: { legalRef: string; sourceFile: string | null; page: number | null }) {
   if (sourceFile && page) {
     return (
-      <a className="ref" href={`/docs/${sourceFile}#page=${page}`} target="_blank" rel="noopener noreferrer">
+      <a className="ref" href={`/api/doc/${encodeURIComponent(sourceFile)}#page=${page}`} target="_blank" rel="noopener noreferrer">
         {legalRef}
         <span className="pg">↗ p.{page}</span>
       </a>
     );
   }
   return <span className="legal">{legalRef}</span>;
+}
+
+/**
+ * Render the briefing's markdown.
+ *
+ * The model is asked for five "## " headings, bullets and paragraphs, and that
+ * is all this handles. A markdown library would be a dependency in the packaged
+ * app for four line shapes — and anything the model emits outside them should
+ * appear as the plain text it is, not be quietly reinterpreted.
+ */
+function BriefingBody({ text }: { text: string }) {
+  const blocks: React.ReactNode[] = [];
+  let bullets: string[] = [];
+
+  const flush = (key: string) => {
+    if (!bullets.length) return;
+    blocks.push(
+      <ul key={key} className="brief-list">
+        {bullets.map((b, i) => (
+          <li key={i}>{b}</li>
+        ))}
+      </ul>
+    );
+    bullets = [];
+  };
+
+  text.split("\n").forEach((raw, i) => {
+    const line = raw.trim();
+    if (!line) {
+      flush(`u${i}`);
+      return;
+    }
+    if (line.startsWith("#")) {
+      flush(`u${i}`);
+      blocks.push(
+        <h3 key={i} className="brief-head">
+          {line.replace(/^#+\s*/, "")}
+        </h3>
+      );
+      return;
+    }
+    if (/^[-*•]\s+/.test(line)) {
+      bullets.push(line.replace(/^[-*•]\s+/, ""));
+      return;
+    }
+    flush(`u${i}`);
+    blocks.push(
+      <p key={i} className="brief-p">
+        {line}
+      </p>
+    );
+  });
+  flush("u-last");
+
+  return <>{blocks}</>;
 }
 
 export default function Home() {
@@ -85,10 +195,32 @@ export default function Home() {
   const [searchedFor, setSearchedFor] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // The AI briefing. Absent from the page entirely unless somebody has
+  // configured a key and switched it on under Settings — this app is offline by
+  // default and a button that always errors is worse than no button.
+  const [ai, setAi] = useState<AiStatus | null>(null);
+  const [briefing, setBriefing] = useState<Briefing | null>(null);
+  const [audit, setAudit] = useState<Audit | null>(null);
+  const [briefingBusy, setBriefingBusy] = useState<null | "brief" | "audit">(null);
+  const [briefingError, setBriefingError] = useState<string | null>(null);
+  const [officer, setOfficer] = useState("");
+
+  useEffect(() => {
+    fetch("/api/ai/settings")
+      .then((r) => r.json())
+      .then((s: AiStatus) => setAi(s.ready ? s : null))
+      .catch(() => setAi(null));
+  }, []);
+
   function reset() {
     setError(null);
     setResult(null);
     setHits(null);
+    // A briefing belongs to the assessment it was drafted over. Leaving the last
+    // one on screen under a new result would attach its figures to the wrong item.
+    setBriefing(null);
+    setAudit(null);
+    setBriefingError(null);
   }
 
   async function assess(text: string) {
@@ -108,6 +240,44 @@ export default function Home() {
       setError((err as Error).message);
     } finally {
       setLoading(null);
+    }
+  }
+
+  /**
+   * Draft a briefing over the assessment on screen.
+   *
+   * Sends the same three fields the assessment itself was made from, and nothing
+   * else. The server re-runs the engine and builds the evidence from the
+   * database — a pack assembled here could be edited before it was sent, and the
+   * pack is the only thing grounding what comes back.
+   */
+  async function runAi(want: "brief" | "audit") {
+    const text = mode === "words" ? words : formItem;
+    if (!text.trim()) return;
+    setBriefingBusy(want);
+    setBriefingError(null);
+    setBriefing(null);
+    setAudit(null);
+    try {
+      const res = await fetch("/api/ai/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: want,
+          query: text,
+          customsValue: value === "" ? null : Number(value),
+          importerType: importer || undefined,
+          requestedBy: officer.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) setBriefingError(data.error || "That could not be completed.");
+      else if (data.mode === "audit") setAudit(data);
+      else setBriefing(data);
+    } catch (err) {
+      setBriefingError((err as Error).message);
+    } finally {
+      setBriefingBusy(null);
     }
   }
 
@@ -140,7 +310,11 @@ export default function Home() {
     <div className="wrap">
       <header className="masthead">
         <h1>Customs Compliance Lookup</h1>
-        <p>Ask in plain English or fill in the form. Every figure cites its legal source and page — uncertain values are flagged, never guessed.</p>
+        <p>
+          Ask in plain English or fill in the form. Every figure cites its legal source and page —
+          uncertain values are flagged, never guessed. <Link href="/documents">Documents</Link>{" "}
+          <Link href="/settings">Settings</Link>
+        </p>
       </header>
 
       <div className="card">
@@ -370,6 +544,196 @@ export default function Home() {
                   </span>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* ---------- AI briefing ---------- */}
+          {ai && (
+            <div className="card briefing">
+              <p className="section-title">Officer&apos;s briefing</p>
+              <p className="brief-lead">
+                A short note drafted from the assessment above and the passages behind it. It restates what the rules
+                engine found — it does not decide a rate, a total, or whether anything is compliant. Every figure it
+                writes is checked back against the assessment before you see it.
+              </p>
+
+              <details className="egress-note">
+                <summary>What will be sent to Anthropic</summary>
+                <ul>
+                  <li>
+                    HS code <code>{a.hsCode}</code> and its tariff description
+                  </li>
+                  <li>The rates, amounts, legal references and pages in the table above</li>
+                  <li>
+                    The declared value (KES {money(it?.customsValue ?? null)}) and importer type ({it?.importerType})
+                  </li>
+                  <li>
+                    Passages from{" "}
+                    {ai.includeAddedDocuments
+                      ? "every loaded document, including ones added on this machine"
+                      : "the four published documents that ship with the app"}
+                  </li>
+                </ul>
+                <p>
+                  Not sent: the sentence you typed, any trader name, KRA PIN, entry or declaration number, or any file
+                  {ai.includeAddedDocuments ? "" : ", or any document added on this machine"}. Change what it may read
+                  under <Link href="/settings">Settings</Link>.
+                </p>
+              </details>
+
+              <div className="brief-controls">
+                <div>
+                  <label className="optlabel" htmlFor="ob">
+                    Your name <span>(recorded against this)</span>
+                  </label>
+                  <input id="ob" value={officer} onChange={(e) => setOfficer(e.target.value)} placeholder="e.g. J. Otieno" />
+                </div>
+                <button className="go" type="button" disabled={briefingBusy !== null} onClick={() => runAi("brief")}>
+                  {briefingBusy === "brief" ? "Drafting…" : briefing ? "Draft again" : "Draft a briefing"}
+                </button>
+                <button className="go secondary" type="button" disabled={briefingBusy !== null} onClick={() => runAi("audit")}>
+                  {briefingBusy === "audit" ? "Auditing…" : audit ? "Audit again" : "Audit against the database"}
+                </button>
+              </div>
+              <p className="brief-modes">
+                <b>Draft a briefing</b> writes up the assessment above. <b>Audit</b> goes further — it queries the
+                database for what the assessment cannot show: a competing rate row, an unapplied Finance Act
+                amendment, a pending proposal, a superseded source. It takes longer and costs more.
+              </p>
+
+              {briefingError && <div className="error" style={{ marginTop: 14 }}>{briefingError}</div>}
+
+              {briefing && (
+                <>
+                  <div className={briefing.verification.ok ? "verify-ok" : "verify-bad"}>
+                    {briefing.verification.ok ? (
+                      <>
+                        <b>Checked.</b> All {briefing.verification.checked} figures in this note appear in the
+                        assessment above.
+                      </>
+                    ) : (
+                      <>
+                        <b>Not verified.</b> {briefing.verification.unsupported.length} figure
+                        {briefing.verification.unsupported.length === 1 ? "" : "s"} in this note{" "}
+                        {briefing.verification.unsupported.length === 1 ? "does" : "do"} not appear in the assessment
+                        above —{" "}
+                        {briefing.verification.unsupported.map((u, i) => (
+                          <span key={u}>
+                            {i > 0 && ", "}
+                            <code>{u}</code>
+                          </span>
+                        ))}
+                        . Treat the note as unreliable and work from the table.
+                      </>
+                    )}
+                  </div>
+
+                  <div className="brief-body">
+                    <BriefingBody text={briefing.report} />
+                  </div>
+
+                  <div className="asat">
+                    Drafted by {briefing.model} · not a decision, and not a legal document
+                  </div>
+                </>
+              )}
+
+              {audit && (
+                <>
+                  <div className="audit-summary">
+                    <p className="audit-lead">{audit.summary}</p>
+                    <p className="audit-stats">
+                      {audit.stats.queries} database quer{audit.stats.queries === 1 ? "y" : "ies"} ·{" "}
+                      {audit.stats.rowsRead} rows read · {audit.stats.turns} turn
+                      {audit.stats.turns === 1 ? "" : "s"}
+                      {audit.stats.truncated && <> · stopped at the limit — findings may be incomplete</>}
+                    </p>
+                  </div>
+
+                  {audit.findings.length === 0 ? (
+                    <div className="verify-ok">
+                      <b>Nothing to raise.</b> The audit queried the database and found nothing the assessment does
+                      not already show.
+                    </div>
+                  ) : (
+                    <div className="findings">
+                      {audit.findings.map((f, i) => (
+                        <div key={i} className={`finding ${f.kind} ${f.severity}`}>
+                          <div className="finding-head">
+                            <span className="fkind">{FINDING_LABEL[f.kind]}</span>
+                            <span className={`fsev ${f.severity}`}>{f.severity}</span>
+                          </div>
+                          <p className="fstatement">{f.statement}</p>
+                          {f.officerAction && (
+                            <p className="faction">
+                              <b>Check:</b> {f.officerAction}
+                            </p>
+                          )}
+                          {f.proposal && (
+                            <p className="fproposal">
+                              Proposed to the review queue as a {f.proposal.kind} on {f.proposal.hsPrefix} —{" "}
+                              <Link href="/review">review it</Link>
+                            </p>
+                          )}
+                          {f.citations.length > 0 && (
+                            <p className="fcite">
+                              rows read: {f.citations.map((c) => c.slice(-8)).join(", ")}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {audit.proposals.created > 0 && (
+                    <div className="verify-ok">
+                      <b>
+                        {audit.proposals.created} proposal{audit.proposals.created === 1 ? "" : "s"} sent to the
+                        review queue.
+                      </b>{" "}
+                      Nothing has changed in the rules — a person approves or rejects them on the{" "}
+                      <Link href="/review">Review</Link> page, and only then does anything become a rule.
+                    </div>
+                  )}
+
+                  {audit.dropped.length > 0 && (
+                    <div className="verify-bad">
+                      <b>
+                        {audit.dropped.length} finding{audit.dropped.length === 1 ? " was" : "s were"} discarded
+                      </b>{" "}
+                      because {audit.dropped.length === 1 ? "it" : "they"} cited no row any query returned. Shown so
+                      the failure is visible, not hidden:
+                      <ul className="dropped">
+                        {audit.dropped.map((d, i) => (
+                          <li key={i}>
+                            {d.statement} <span className="dreason">({d.reason})</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <details className="egress-note" style={{ marginTop: 14 }}>
+                    <summary>What it actually queried ({audit.queries.length})</summary>
+                    <table className="querylog">
+                      <tbody>
+                        {audit.queries.map((q, i) => (
+                          <tr key={i}>
+                            <td className="qname">{q.name}</td>
+                            <td className="qargs">{JSON.stringify(q.input)}</td>
+                            <td className="qrows">{q.error ? "error" : `${q.rowCount} rows`}</td>
+                            <td className="qms">{q.ms}ms</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </details>
+
+                  <div className="asat">
+                    Audited by {audit.model} · read-only · findings only, nothing here changed a rule
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

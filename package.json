@@ -1,6 +1,6 @@
 {
   "name": "customs-compliance",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "private": true,
   "author": {
     "name": "gitboycryptogeek",
@@ -12,7 +12,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "app:bundle": "npm run db:use sqlite && next build && tsx scripts/assemble-standalone.ts",
+    "app:bundle": "tsx scripts/require-db.ts && npm run db:use sqlite && next build && tsx scripts/assemble-standalone.ts",
     "app:dev": "npm run app:bundle && electron .",
     "dist": "npm run app:bundle && electron-builder",
     "dist:linux": "npm run app:bundle && electron-builder --linux",
@@ -20,6 +20,9 @@
     "dist:mac": "npm run app:bundle && electron-builder --mac",
     "db:use": "tsx scripts/select-schema.ts",
     "db:setup": "tsx scripts/db-setup.ts",
+    "db:build": "tsx scripts/build-db.ts",
+    "db:fetch": "tsx scripts/fetch-db.ts",
+    "baseline:export": "tsx scripts/export-baseline.ts",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
@@ -28,13 +31,24 @@
     "load:finance": "tsx scripts/load-finance-act.ts",
     "load:routine": "tsx scripts/load-routine-order.ts",
     "assess": "tsx scripts/assess.ts",
-    "test": "tsx scripts/run-fixtures.ts"
+    "test": "tsx scripts/run-fixtures.ts",
+    "verify:parity": "tsx scripts/verify-parity.ts",
+    "verify:loaders": "bash scripts/verify-loaders.sh",
+    "verify:classify": "tsx scripts/verify-classify.ts",
+    "verify:ingest": "tsx scripts/verify-ingest.ts",
+    "verify:ai": "tsx scripts/verify-ai-report.ts",
+    "migrate": "tsx scripts/migrate.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.123.0",
+    "@napi-rs/canvas": "^0.1.100",
     "@prisma/client": "^6.1.0",
+    "electron-updater": "^6.8.9",
     "next": "^15.1.3",
+    "pdfjs-dist": "^4.10.38",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "tesseract.js": "^5.1.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
@@ -55,7 +69,19 @@
     },
     "files": [
       "electron/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/next/**",
+      "!node_modules/react/**",
+      "!node_modules/react-dom/**",
+      "!node_modules/@prisma/**",
+      "!node_modules/.prisma/**",
+      "!node_modules/prisma/**",
+      "!node_modules/pdfjs-dist/**",
+      "!node_modules/tesseract.js/**",
+      "!node_modules/tesseract.js-core/**",
+      "!node_modules/@napi-rs/**",
+      "!node_modules/sharp/**",
+      "!node_modules/@img/**"
     ],
     "extraResources": [
       {
@@ -65,6 +91,10 @@
       {
         "from": "prisma/customs.db",
         "to": "customs.db"
+      },
+      {
+        "from": "vendor/tessdata",
+        "to": "tessdata"
       }
     ],
     "asar": true,
@@ -90,13 +120,21 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
+      "createDesktopShortcut": true,
+      "differentialPackage": true
     },
     "mac": {
       "target": [
         "dmg"
       ],
       "category": "public.app-category.business"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "gitboycryptogeek",
+        "repo": "customs"
+      }
+    ]
   }
 }

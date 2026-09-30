@@ -96,36 +96,108 @@ async function fullTextPostgres(q: string): Promise<{ hsprefix: string; text: st
 }
 
 /**
- * SQLite: no tsvector. Deterministic tokenised scan — pull HS-description chunks
- * that contain any query keyword, then rank by how many distinct keywords match
- * (ties broken by shorter description, so the most specific line wins). Adequate
- * for the ~5,900 short CET descriptions and needs no SQLite extension.
+ * SQLite: full-text over the FTS5 index, then the project's own ranking.
+ *
+ * The index does the narrowing — without it this scans every chunk in the
+ * database with a `LIKE '%word%'` per keyword, which is fine at four documents
+ * and fatal at a hundred. The final ordering is still ours: most distinct
+ * keywords matched, ties broken by the shorter description, so the most
+ * specific tariff line wins. bm25 is only used to bound the candidate set, and
+ * it is a pure function of the index, so the whole thing stays deterministic.
  */
 async function fullTextSqlite(q: string): Promise<{ hsprefix: string; text: string; rank: number }[]> {
-  const words = q
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 2 && !STOPWORDS.has(w));
+  const words = significantWords(q);
   if (words.length === 0) return [];
 
-  // GLOB '[0-9]*' keeps HS-code chunks; length filter keeps 6-8 digit refs.
-  const rows = await prisma.$queryRawUnsafe<{ hsprefix: string; text: string }[]>(
+  const rows = (await ftsCandidates(words, CANDIDATE_LIMIT, true)) ?? (await likeCandidates(words));
+  return rankByKeywords(rows, words).slice(0, 5);
+}
+
+/** How many index hits to rank in process. Far above any realistic result set. */
+const CANDIDATE_LIMIT = 2000;
+
+/**
+ * Whether the FTS index exists, probed once per process.
+ *
+ * Checked rather than discovered by letting queries fail: a failed raw query is
+ * logged by the Prisma client on every single search, which turns a supported
+ * fallback into a wall of error output that hides real problems.
+ */
+let ftsProbe: Promise<boolean> | null = null;
+
+function ftsAvailable(): Promise<boolean> {
+  if (!ftsProbe) {
+    ftsProbe = prisma
+      .$queryRawUnsafe(`SELECT rowid FROM chunks_fts LIMIT 1`)
+      .then(() => true)
+      .catch(() => false);
+  }
+  return ftsProbe;
+}
+
+/**
+ * Ask the FTS index for chunks matching any keyword.
+ *
+ * Returns null when the index is not present — a database that predates the
+ * migration, or a SQLite build without FTS5 — so callers can fall back rather
+ * than fail. Search degrading to slow is recoverable; search erroring is not.
+ */
+async function ftsCandidates(
+  words: string[],
+  limit: number,
+  tariffOnly: boolean
+): Promise<{ hsprefix: string; text: string }[] | null> {
+  if (!(await ftsAvailable())) return null;
+  // Words are already reduced to [a-z0-9], so they cannot carry FTS5 operator
+  // syntax; quoting them keeps that true even if the filter is ever loosened.
+  const match = words.map((w) => `"${w}"`).join(" OR ");
+  const tariffFilter = tariffOnly
+    ? `AND c."sectionRef" GLOB '[0-9]*' AND length(c."sectionRef") BETWEEN 6 AND 8`
+    : "";
+  try {
+    return await prisma.$queryRawUnsafe<{ hsprefix: string; text: string }[]>(
+      `SELECT c."sectionRef" AS hsprefix, c.text AS text
+         FROM chunks_fts
+         JOIN chunks c ON c.rowid = chunks_fts.rowid
+        WHERE chunks_fts MATCH ?
+          ${tariffFilter}
+        ORDER BY bm25(chunks_fts)
+        LIMIT ${limit}`,
+      match
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** Pre-index fallback: the original scan. Correct, just slow. */
+async function likeCandidates(words: string[]): Promise<{ hsprefix: string; text: string }[]> {
+  return prisma.$queryRawUnsafe<{ hsprefix: string; text: string }[]>(
     `SELECT "sectionRef" AS hsprefix, text
-     FROM chunks
-     WHERE "sectionRef" GLOB '[0-9]*'
-       AND length("sectionRef") BETWEEN 6 AND 8
-       AND (${words.map(() => "lower(text) LIKE ?").join(" OR ")})`,
+       FROM chunks
+      WHERE "sectionRef" GLOB '[0-9]*'
+        AND length("sectionRef") BETWEEN 6 AND 8
+        AND (${words.map(() => "lower(text) LIKE ?").join(" OR ")})`,
     ...words.map((w) => `%${w}%`)
   );
+}
 
+/** Most distinct keywords first; ties to the shorter, more specific description. */
+function rankByKeywords(
+  rows: { hsprefix: string; text: string }[],
+  words: string[]
+): { hsprefix: string; text: string; rank: number }[] {
   const scored = rows.map((r) => {
     const t = r.text.toLowerCase();
-    const hits = words.filter((w) => t.includes(w)).length;
-    return { hsprefix: r.hsprefix, text: r.text, rank: hits, len: r.text.length };
+    return {
+      hsprefix: r.hsprefix,
+      text: r.text,
+      rank: words.filter((w) => t.includes(w)).length,
+      len: r.text.length,
+    };
   });
   scored.sort((a, b) => b.rank - a.rank || a.len - b.len);
-  return scored.slice(0, 5).map(({ hsprefix, text, rank }) => ({ hsprefix, text, rank }));
+  return scored.map(({ hsprefix, text, rank }) => ({ hsprefix, text, rank }));
 }
 
 // Small stopword set for keyword extraction — deterministic, no NLP library.
@@ -149,22 +221,46 @@ export interface LawHit {
  * "Search the law": find where a pasted paragraph or phrase appears in the loaded
  * documents. Unlike item resolution this uses OR semantics — a chunk ranks by how
  * many of the query's keywords it contains — because a pasted legal paragraph
- * shares only some words with the provision you're after. Returns the best matches
- * with their source and page so the UI can deep-link into the PDF. Deterministic,
- * no model. Works the same on Postgres and SQLite (scored in-process over the
- * small corpus, so no tsvector/LIKE dialect differences).
+ * shares only some words with the provision you are after. Returns the best
+ * matches with their source and page so the UI can deep-link into the PDF.
+ * Deterministic, no model.
+ *
+ * The candidate set comes from the full-text index rather than from every chunk
+ * in the database. This function used to load the whole table and score it in
+ * memory, which is survivable at four documents and is not at a hundred — and
+ * adding documents is now something a user does from inside the app.
  */
-export async function searchLaw(input: string, limit = 15): Promise<LawHit[]> {
+export async function searchLaw(
+  input: string,
+  limit = 15,
+  /**
+   * Restrict the search to these source versions. Undefined/null searches
+   * everything, which is what the UI does. The AI layer passes a list here so a
+   * document somebody added on this machine is not read out to an external
+   * service — see lib/ai/scope.ts.
+   */
+  onlySourceVersions?: string[] | null
+): Promise<LawHit[]> {
   const words = significantWords(input).slice(0, 30);
   if (words.length === 0) return [];
 
+  const ids = await lawCandidateIds(words);
+  const where = {
+    ...(ids ? { id: { in: ids } } : {}),
+    ...(onlySourceVersions ? { sourceVersionId: { in: onlySourceVersions } } : {}),
+  };
   const chunks = await prisma.chunk.findMany({
+    where: Object.keys(where).length ? where : undefined,
     select: {
+      id: true,
       text: true,
       sectionRef: true,
       sourcePage: true,
       sourceVersion: { select: { title: true, sourceFile: true } },
     },
+    // Only reached on the fallback path, where `ids` is null: keep the work
+    // bounded rather than pulling an entire corpus into memory.
+    take: ids ? undefined : LAW_SCAN_CAP,
   });
 
   const scored = chunks
@@ -187,6 +283,36 @@ export async function searchLaw(input: string, limit = 15): Promise<LawHit[]> {
       matched,
     };
   });
+}
+
+/** Cap on the pre-index fallback scan. */
+const LAW_SCAN_CAP = 20000;
+
+/**
+ * Chunk ids matching any keyword, or null when no index is available.
+ *
+ * Postgres has its own full-text column and is handled by fullTextPostgres for
+ * item resolution; for the law search the FTS index is the SQLite path, and
+ * null simply means "score what you can".
+ */
+async function lawCandidateIds(words: string[]): Promise<string[] | null> {
+  if (dbProvider() !== "sqlite") return null;
+  if (!(await ftsAvailable())) return null;
+  const match = words.map((w) => `"${w}"`).join(" OR ");
+  try {
+    const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT c.id AS id
+         FROM chunks_fts
+         JOIN chunks c ON c.rowid = chunks_fts.rowid
+        WHERE chunks_fts MATCH ?
+        ORDER BY bm25(chunks_fts)
+        LIMIT ${CANDIDATE_LIMIT}`,
+      match
+    );
+    return rows.map((r) => r.id);
+  } catch {
+    return null;
+  }
 }
 
 /** Significant lowercase words for matching: alphanumeric, >2 chars, not a stopword, de-duped. */

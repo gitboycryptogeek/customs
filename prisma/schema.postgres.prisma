@@ -35,12 +35,27 @@ model SourceVersion {
   supersedesId  String?
   supersedes    SourceVersion?  @relation("Supersession", fields: [supersedesId], references: [id])
   supersededBy  SourceVersion[] @relation("Supersession")
+  /// Where the source file itself is kept. Bundled documents live under
+  /// public/docs; anything a user adds goes to the writable per-user docs
+  /// folder, because the app bundle is read-only.
+  storedPath    String?
+  /// The filename the user recognised it by, for display.
+  originalFilename String?
+  pageCount     Int?
+  /// queued | extracting | ocr | parsing | ready | failed
+  ingestStatus  String    @default("ready")
+  ingestError   String?
+  /// Mean OCR confidence 0..1, or null for a document with a text layer.
+  meanOcrConfidence Float?
+  addedBy       String?
   fetchedAt     DateTime  @default(now())
 
   obligations Obligation[]
   conditions  Condition[]
   amendments  Amendment[]
   chunks      Chunk[]
+  stagedRows  StagedRow[]
+  parseRuns   ParseRun[]
 
   @@map("source_versions")
 }
@@ -65,6 +80,7 @@ model Obligation {
 
   @@index([hsPrefix])
   @@index([type])
+  @@index([hsPrefix, type])
   @@map("obligations")
 }
 
@@ -115,8 +131,68 @@ model Chunk {
   sourcePage      Int? // 1-based page in the source PDF, for deep links. Null when unknown.
   tsv             Unsupported("tsvector")?
   ocrConfidence   Float?
+  /// extract | approval — which produced this chunk. A re-read replaces the
+  /// extractor's chunks and must leave approval's alone: those carry a
+  /// reviewer's decision, not a parse.
+  origin          String                 @default("extract")
 
+  @@index([sectionRef])
+  @@index([sourceVersionId])
   @@map("chunks")
+}
+
+/// A row a parser proposes but no human has accepted yet.
+///
+/// This is the whole safety mechanism for user-added documents: a parser reading
+/// an unfamiliar tariff table writes here, never to `obligations`, and assess()
+/// never reads this table. Rule 4 in CLAUDE.md — anything uncertain is flagged,
+/// not guessed — is enforced by that separation rather than by a boolean.
+model StagedRow {
+  id              String        @id @default(cuid())
+  sourceVersionId String
+  sourceVersion   SourceVersion @relation(fields: [sourceVersionId], references: [id])
+  /// obligation | condition | amendment
+  kind            String
+  /// JSON of the proposed row, shaped like the table it would become.
+  payload         String
+  /// The source text it was read from, so a reviewer sees the evidence.
+  snippet         String
+  sourcePage      Int?
+  /// 0..1 — how well-formed the parse was. Never a probability that it is legally correct.
+  confidence      Float         @default(0)
+  parserId        String
+  /// pending | approved | rejected
+  status          String        @default("pending")
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  /// Id of the Obligation/Condition this became once approved.
+  producedId      String?
+  createdAt       DateTime      @default(now())
+
+  @@index([sourceVersionId])
+  @@index([status])
+  @@map("staged_rows")
+}
+
+/// One parser run over one document.
+///
+/// CLAUDE.md requires every loader to print its parse coverage — rows matched
+/// against HS-code-like lines seen — so you know the size of the gap. Storing it
+/// makes that answerable later, and lets the UI show a new document's coverage
+/// against the CET's ~99% benchmark.
+model ParseRun {
+  id              String        @id @default(cuid())
+  sourceVersionId String
+  sourceVersion   SourceVersion @relation(fields: [sourceVersionId], references: [id])
+  parserId        String
+  linesSeen       Int
+  rowsMatched     Int
+  coveragePct     Float
+  notes           String?
+  ranAt           DateTime      @default(now())
+
+  @@index([sourceVersionId])
+  @@map("parse_runs")
 }
 
 /// Human/algorithm-curated term -> HS code map. First-class search input.
@@ -137,4 +213,54 @@ model SearchMiss {
   createdAt DateTime @default(now())
 
   @@map("search_misses")
+}
+
+/// A briefing drafted by the AI narration layer, and the evidence it was given.
+///
+/// The briefing model never decides a rate — CLAUDE.md rule 1 — it restates what
+/// assess() already produced. This table is what makes that checkable after the
+/// fact: `evidence` is exactly what left the machine, `report` is exactly what
+/// came back, and `verified`/`unsupported` record whether every figure in the
+/// prose could be traced to the evidence (lib/ai/verify.ts).
+///
+/// Append-only, like everything else here. A briefing is a record of what was
+/// shown to an officer on a particular day; it is never updated or deleted.
+model AiReport {
+  id           String   @id @default(cuid())
+  /// Who asked for it. An unattributed briefing is not an audit trail.
+  requestedBy  String?
+  hsCode       String
+  /// The item phrase as sent — already redacted (lib/ai/redact.ts).
+  itemQuery    String
+  customsValue Decimal  @db.Decimal(18, 2)
+  importerType String
+  model        String
+  /// brief | audit — a one-shot narration, or a tool-using database audit.
+  mode         String   @default("brief")
+  /// JSON of the evidence pack, exactly as sent. Kept as text, not Json, so one
+  /// code path serialises it on both providers (as StagedRow.payload already does).
+  evidence     String
+  /// The drafted briefing, exactly as returned.
+  report       String
+  /// Whether every figure in the report was traceable to the evidence.
+  verified     Boolean
+  /// JSON array of figures that were not. Empty when verified.
+  unsupported  String
+  /// JSON array of every database query the audit ran and what it returned.
+  /// In audit mode this IS the evidence: a finding is admissible only if it
+  /// cites a row that appears here.
+  toolCalls    String?
+  /// JSON array of the findings that survived citation checking.
+  findings     String?
+  /// Findings dropped because they cited nothing real. Kept: a model inventing
+  /// citations is exactly what this table exists to make visible.
+  droppedFindings String?
+  /// How many staged proposals this audit put in the review queue.
+  proposalsCreated Int   @default(0)
+  inputTokens  Int?
+  outputTokens Int?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("ai_reports")
 }

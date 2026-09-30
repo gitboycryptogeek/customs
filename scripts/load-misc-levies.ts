@@ -15,7 +15,9 @@
  * Usage:  npx tsx scripts/load-misc-levies.ts ./Miscellaneous*.pdf [--dry-run]
  */
 import { prisma } from "../lib/db";
-import { pdfToPages, hasTextLayer } from "./lib/pdf";
+import { extractPages, hasTextLayer } from "./lib/pdf";
+import { layoutPages } from "../lib/pdf";
+import { chunkDocument } from "../lib/ingest/chunker";
 import { ensureSourceVersion, parseArgs } from "./lib/source";
 
 const EFFECTIVE_FROM = new Date("2024-12-27"); // "Legislation as at 27 December 2024"
@@ -32,7 +34,7 @@ async function main() {
     console.error("usage: tsx scripts/load-misc-levies.ts <file.pdf> [--dry-run]");
     process.exit(1);
   }
-  if (!hasTextLayer(file)) {
+  if (!(await hasTextLayer(file))) {
     console.error("No text layer — expected the Kenya Law text PDF of Cap. 469C.");
     process.exit(1);
   }
@@ -51,7 +53,8 @@ async function main() {
 
   // Best-effort page of each levy's defining section, for deep links. Match the
   // levy name (more robust than a bare section number); null if not found.
-  const pages = pdfToPages(file);
+  const pdfPages = await extractPages(file);
+  const pages = layoutPages(pdfPages);
   const idfPage = findPage(pages, /import\s+declaration\s+fee/i);
   const rdlPage = findPage(pages, /railway\s+development\s+levy/i);
 
@@ -127,15 +130,9 @@ async function main() {
     })),
   });
 
-  // Chunk the full text for full-text search over the statute, keeping the page
-  // each paragraph came from so "search the law" can deep-link to it.
-  const paras: { text: string; page: number }[] = [];
-  pages.forEach((pageText, idx) => {
-    for (const para of pageText.split(/\n\s*\n/)) {
-      const t = para.replace(/\s+/g, " ").trim();
-      if (t.length > 40) paras.push({ text: t, page: idx + 1 });
-    }
-  });
+  // Chunk by paragraph, not by page: a search hit should return the provision
+  // somebody was looking for, with the page it came from attached.
+  const paras = chunkDocument(pdfPages, pages);
   const CHUNK = 500;
   for (let i = 0; i < paras.length; i += CHUNK) {
     await prisma.chunk.createMany({

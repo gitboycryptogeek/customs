@@ -3,7 +3,7 @@
  * These carry conditions and time-bound measures (stays of duty, remissions,
  * duty-rate changes for the year) rather than the base tariff. They are legal
  * interpretation-heavy, so we do NOT auto-apply them to obligations. We:
- *   - OCR the scan (pdftoppm + tesseract), storing ocr_confidence per chunk;
+ *   - OCR the scan automatically (pdf.js raster + tesseract.js), recording confidence;
  *   - make the text fully searchable;
  *   - record lines that reference an HS code as `conditions` (type restriction)
  *     tagged for human review — a person decides if a rate actually changes.
@@ -11,7 +11,8 @@
  * Usage:  npx tsx scripts/load-routine-order.ts ./ROUTINE*.pdf [--dry-run]
  */
 import { prisma } from "../lib/db";
-import { ocrPdf, tesseractAvailable } from "./lib/pdf";
+import { extractDocument } from "../lib/pdf";
+import { ocrAvailable } from "./lib/pdf";
 import { ensureSourceVersion, parseArgs } from "./lib/source";
 
 const EFFECTIVE_FROM = new Date("2026-07-01"); // "1st July 2026"
@@ -23,16 +24,23 @@ async function main() {
     console.error("usage: tsx scripts/load-routine-order.ts <file.pdf> [--dry-run]");
     process.exit(1);
   }
-  if (!tesseractAvailable()) {
-    console.error("tesseract not installed. Run: sudo apt install -y tesseract-ocr (see memory/ocr-blocker.md)");
+  if (!ocrAvailable()) {
+    console.error("OCR language data missing — expected vendor/tessdata/eng.traineddata.gz.");
     process.exit(1);
   }
 
   console.log(`Routine Order loader ${dryRun ? "(dry run) " : ""}— ${file}`);
-  console.log("  Scanned — running OCR (pdftoppm + tesseract)…");
-  const pages = ocrPdf(file, 150);
-  const meanConf = pages.reduce((s, p) => s + (p.confidence >= 0 ? p.confidence : 0), 0) / pages.length;
-  console.log(`  OCR'd ${pages.length} pages, mean confidence ${(meanConf * 100).toFixed(1)}%`);
+  const doc = await extractDocument(file, {
+    onProgress: (stage, page, total) => {
+      if (page === 1 || page % 10 === 0) console.log(`  ${stage} page ${page}/${total}`);
+    },
+  });
+  console.log(
+    `  Read ${doc.pageCount} pages via ${doc.method}` +
+      (doc.meanOcrConfidence !== null ? `, mean confidence ${(doc.meanOcrConfidence * 100).toFixed(1)}%` : "") +
+      (doc.recoveredWords > 0 ? `, ${doc.recoveredWords} words recovered from skipped regions` : "")
+  );
+  const pages = doc.pageText.map((text, i) => ({ page: i + 1, text }));
 
   // Candidate measure lines: any sentence referencing an HS code.
   const measures: { hsPrefix: string; detail: string }[] = [];
@@ -86,7 +94,7 @@ async function main() {
         sectionRef: `p.${p.page}`,
         text: p.text,
         sourcePage: p.page,
-        ocrConfidence: p.confidence >= 0 ? p.confidence : null,
+        ocrConfidence: doc.meanOcrConfidence,
       })),
   });
 

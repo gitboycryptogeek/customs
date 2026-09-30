@@ -17,3 +17,20 @@ prisma/*.db-wal
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# The AI briefing's API key. In the packaged app this lives in the per-user data
+# folder; in dev SETTINGS_DIR is unset, so it is written here. Never commit it.
+ai-settings.json
+
+# Documents a user adds through the Documents page. These are somebody else's
+# material, not published law — the repo is public, and this one is how an
+# internal memo would end up in it. The app stores them by content hash in a
+# per-user folder; docs-store/ is only where dev runs land.
+docs-store/
+
+# The shipped SQLite database. Built from the PDFs in public/docs/ by
+# `npm run db:build`, or fetched prebuilt with `npm run db:fetch`. Not committed:
+# it is a build output, and once a user adds documents through the app it stops
+# being only published law. fixtures/baseline.json is the committed ground truth
+# the loaders are verified against.
+prisma/customs.db

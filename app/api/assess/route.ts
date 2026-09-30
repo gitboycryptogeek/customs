@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveHsCode } from "@/lib/search";
 import { assess } from "@/lib/assess";
 import { interpret } from "@/lib/interpret";
+import { ensureReady } from "@/lib/startup";
 
 // Deterministic assessment endpoint. No trader PII is accepted or logged here —
 // only a plain-English item query / value / importer type. (Never send names,
@@ -13,6 +14,7 @@ import { interpret } from "@/lib/interpret";
 // customsValue / importerType in the body override what the sentence implies.
 export async function POST(req: Request) {
   try {
+    await ensureReady();
     const body = await req.json();
     const rawQuery: unknown = body.query;
     if (!rawQuery || typeof rawQuery !== "string") {
