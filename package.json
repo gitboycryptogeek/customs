@@ -7,6 +7,9 @@
     "email": "benvicky6133@gmail.com"
   },
   "main": "electron/main.js",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "postinstall": "prisma generate",
     "dev": "next dev",
