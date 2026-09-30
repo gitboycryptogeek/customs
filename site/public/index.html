@@ -283,6 +283,25 @@ tr.total td {
 .btn .sub { font-family: var(--mono); font-weight: 400; font-size: 11px; letter-spacing: .05em; opacity: .78; }
 @media (prefers-reduced-motion: reduce) { .btn:hover { transform: none; } }
 
+/* The update call-to-action. Same .btn as the hero download, boxed so somebody
+   who already has the app sees it as addressed to them. */
+.updatebox {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.4rem;
+  flex-wrap: wrap;
+  margin-top: 1.4rem;
+  padding: 1.1rem 1.3rem;
+  border: 1px solid var(--rule);
+  background: var(--paper-2, transparent);
+}
+.updatebox-text { flex: 1 1 22rem; min-width: 0; }
+.updatebox-text b { font-weight: 600; color: var(--ink); }
+.updatebox-text p { margin: .3rem 0 0; font-size: .9rem; color: var(--ink-soft); }
+.updatebox .btn { flex-shrink: 0; }
+@media (max-width: 620px) { .updatebox .btn { width: 100%; align-items: center; } }
+
 .alt { font-size: .87rem; color: var(--ink-soft); margin: 0; }
 .alt a { margin-right: .85rem; white-space: nowrap; }
 
@@ -611,6 +630,21 @@ footer .right { margin-left: auto; }
       before it will install one, and these builds are not signed — so the Mac app tells you
       when a new version exists and sends you back here to fetch it.
     </p>
+
+    <div class="updatebox">
+      <div class="updatebox-text">
+        <b>Already have it installed?</b>
+        <p id="update-blurb">
+          Run the installer over your existing copy. It upgrades in place — there is nothing to
+          uninstall first, and your database, the documents you added and your logged searches
+          all carry over.
+        </p>
+      </div>
+      <a class="btn" id="update-download" href="/download/windows">
+        <span id="update-label">Update now</span>
+        <span class="sub" id="update-sub">in place · keeps your data</span>
+      </a>
+    </div>
   </section>
 
   <aside class="note">
@@ -732,10 +766,40 @@ footer .right { margin-left: auto; }
       (data.notes || "").trim() || "No release notes for this version.";
   }
 
+  /*
+   * The update button is the same installer as the download button — on Windows
+   * and Linux that IS the update path, because NSIS and the AppImage upgrade in
+   * place. It is a separate control because somebody who already has the app
+   * installed does not read "Download" as applying to them, and was uninstalling
+   * first to be safe.
+   */
+  function renderUpdate(data) {
+    var mine = detectPlatform();
+    var def = PLATFORMS.filter(function (p) { return p.key === mine; })[0] || PLATFORMS[0];
+    var asset = data.assets && data.assets[def.key];
+
+    document.getElementById("update-download").href = def.path;
+    document.getElementById("update-label").textContent =
+      data.version ? "Update to " + data.version : "Update now";
+    document.getElementById("update-sub").textContent =
+      (asset && asset.size ? asset.size + " · " : "") +
+      (def.updates === "auto" ? "or wait — it updates itself" : "in place · keeps your data");
+
+    // macOS cannot self-update these unsigned builds, so the honest instruction
+    // there is different from the Windows one.
+    if (def.key === "macos") {
+      document.getElementById("update-blurb").textContent =
+        "Download the new .dmg and drag it over the app in Applications. These builds are " +
+        "unsigned, so macOS will not apply an update for you — but your database, the documents " +
+        "you added and your logged searches live outside the app and carry over.";
+    }
+  }
+
   function render(data) {
     if (!data) return;
     renderStamp(data);
     renderPrimary(data);
+    renderUpdate(data);
     renderDownloads(data);
   }
 
