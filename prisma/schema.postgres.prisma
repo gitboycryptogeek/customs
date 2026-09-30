@@ -215,6 +215,37 @@ model SearchMiss {
   @@map("search_misses")
 }
 
+/// What was looked up, so an officer can get back to it.
+///
+/// `search_misses` records the queries that resolved to nothing — that log is the
+/// alias-table backlog. This records the ones that worked, which nothing did:
+/// every assessment disappeared as soon as the next replaced it on screen.
+///
+/// Deliberately not an audit trail of declarations, and it must not become one.
+/// It holds exactly what /api/assess already accepts — a redacted item phrase, a
+/// value, an importer type — and no trader name, PIN or entry number.
+model Lookup {
+  id           String   @id @default(cuid())
+  /// The item phrase, as interpret() reduced it. Never the raw typed sentence.
+  itemQuery    String
+  hsCode       String?
+  description  String?
+  /// exact | alias | fulltext | none — how lib/search.ts got there.
+  resolvedVia  String?
+  customsValue Decimal?
+  importerType String
+  /// Null means the engine refused a total because a line needed review. Not 0.
+  total        Decimal?
+  totalBlocked Boolean  @default(false)
+  lineCount    Int      @default(0)
+  flagCount    Int      @default(0)
+  requestedBy  String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("lookups")
+}
+
 /// A briefing drafted by the AI narration layer, and the evidence it was given.
 ///
 /// The briefing model never decides a rate — CLAUDE.md rule 1 — it restates what
@@ -235,7 +266,8 @@ model AiReport {
   customsValue Decimal  @db.Decimal(18, 2)
   importerType String
   model        String
-  /// brief | audit — a one-shot narration, or a tool-using database audit.
+  /// brief | audit | chat — a one-shot narration, a tool-using database audit,
+  /// or a grounded conversational answer (lib/ai/chat.ts).
   mode         String   @default("brief")
   /// JSON of the evidence pack, exactly as sent. Kept as text, not Json, so one
   /// code path serialises it on both providers (as StagedRow.payload already does).

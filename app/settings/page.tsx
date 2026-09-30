@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
+import { ThemeToggle } from "../ThemeToggle";
+
 interface Status {
   configured: boolean;
   ready: boolean;
@@ -68,11 +70,22 @@ export default function Settings() {
     <div className="wrap">
       <header className="masthead">
         <h1>Settings</h1>
-        <p>
-          The AI briefing, and what it is allowed to send. <Link href="/">Lookup</Link>{" "}
-          <Link href="/documents">Documents</Link>
-        </p>
+        <p>Appearance, and the AI briefing — what it is allowed to send and whether it runs at all.</p>
       </header>
+
+      {/* Appearance first: it is the setting with no consequences, and putting it
+          above the egress warning keeps that warning next to the switch it is
+          about rather than halfway down the page. */}
+      <div className="card">
+        <p className="section-title">Appearance</p>
+        <div className="setrow">
+          <ThemeToggle withLabel />
+          <p className="settings-lead" style={{ margin: 0 }}>
+            Stored in this browser, on this machine. <strong>Auto</strong> follows the operating
+            system; picking Light or Dark overrides it and stays put.
+          </p>
+        </div>
+      </div>
 
       <div className="card">
         <p className="section-title">Before you switch this on</p>

@@ -136,7 +136,8 @@
       {
         "provider": "github",
         "owner": "gitboycryptogeek",
-        "repo": "customs"
+        "repo": "customs",
+        "releaseType": "release"
       }
     ]
   }

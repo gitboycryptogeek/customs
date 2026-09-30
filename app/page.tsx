@@ -107,7 +107,21 @@ const FINDING_LABEL: Record<string, string> = {
   unreviewed: "waiting on a person",
 };
 
-type Mode = "words" | "form";
+type Mode = "words" | "form" | "ai";
+
+/** One exchange in AI mode. `pending` is the optimistic user turn before the reply lands. */
+interface ChatMessage {
+  role: "user" | "assistant";
+  text: string;
+  /** Present on an assistant turn: whether every figure checked back against the grounding. */
+  verified?: boolean;
+  unsupported?: string[];
+  /** False when the engine could not assess the question and the answer is law-only. */
+  grounded?: boolean;
+  noAssessmentReason?: string | null;
+  hsCode?: string | null;
+  model?: string;
+}
 
 /**
  * A legal reference — a link that opens the source PDF at the exact page.
@@ -205,6 +219,38 @@ export default function Home() {
   const [briefingError, setBriefingError] = useState<string | null>(null);
   const [officer, setOfficer] = useState("");
 
+  // AI mode. A conversation, but not a stateful one on the server: every turn
+  // re-grounds on the engine (see app/api/ai/chat/route.ts), and this array is
+  // only what to draw plus the prior turns' text to replay.
+  const [chat, setChat] = useState<ChatMessage[]>([]);
+  const [ask, setAsk] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+
+  /*
+   * Rehydrate from ?q=&value=&importer= — what History's "Run again" links to.
+   *
+   * Read from window.location in an effect rather than with useSearchParams():
+   * this page is prerendered, and useSearchParams() in a prerendered client
+   * component has to sit inside a Suspense boundary or the build fails. An effect
+   * has neither problem and runs before the user can type.
+   */
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const q = p.get("q");
+    if (!q) return;
+    setMode("words");
+    setWords(q);
+    const v = p.get("value");
+    if (v) setValue(v);
+    const imp = p.get("importer");
+    if (imp) setImporter(imp);
+    // Assess straight away: the link exists to get back to a result, and making
+    // somebody press the button again after clicking "Run again" is a dead end.
+    assess(q, { value: v, importer: imp });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     fetch("/api/ai/settings")
       .then((r) => r.json())
@@ -223,7 +269,31 @@ export default function Home() {
     setBriefingError(null);
   }
 
-  async function assess(text: string) {
+  /**
+   * Start again — inputs as well as results.
+   *
+   * Distinct from reset(), which runs before every assessment and must leave the
+   * query alone. The page opens with an example sentence prefilled, so without
+   * this the only way back to an empty box is to select the text and delete it.
+   */
+  function clearAll() {
+    reset();
+    setWords("");
+    setFormItem("");
+    setValue("");
+    setImporter("");
+    setSearchedFor("");
+    setChat([]);
+    setChatError(null);
+  }
+
+  /** Is there anything on screen worth clearing? */
+  const dirty =
+    Boolean(result || hits || error || briefing || audit || chat.length) ||
+    words.trim().length > 0 ||
+    formItem.trim().length > 0;
+
+  async function assess(text: string, override?: { value: string | null; importer: string | null }) {
     if (!text.trim()) return;
     reset();
     setLoading("assess");
@@ -231,7 +301,21 @@ export default function Home() {
       const res = await fetch("/api/assess", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: text, customsValue: value === "" ? null : Number(value), importerType: importer || undefined }),
+        // The override path exists because this can be called from the URL-
+        // rehydration effect, where the setValue/setImporter calls above have not
+        // been applied to `value`/`importer` yet.
+        body: JSON.stringify({
+          query: text,
+          customsValue: override
+            ? override.value === null || override.value === ""
+              ? null
+              : Number(override.value)
+            : value === ""
+              ? null
+              : Number(value),
+          importerType: (override ? override.importer : importer) || undefined,
+          requestedBy: officer.trim() || null,
+        }),
       });
       const data: AssessResponse = await res.json();
       if (!res.ok) setError(data.error || "Request failed");
@@ -302,6 +386,61 @@ export default function Home() {
     }
   }
 
+  /**
+   * Ask in AI mode.
+   *
+   * Only the question and the prior turns' text go up. The server re-runs the
+   * deterministic engine over the question and grounds the answer on that — so
+   * the browser never supplies a figure, and an answer's figures are checked back
+   * against the grounding before it is drawn.
+   */
+  async function sendChat() {
+    const q = ask.trim();
+    if (!q || chatBusy) return;
+
+    const history = chat.map((m) => ({ role: m.role, text: m.text }));
+    setChat((c) => [...c, { role: "user", text: q }]);
+    setAsk("");
+    setChatError(null);
+    setChatBusy(true);
+
+    try {
+      const res = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          question: q,
+          history,
+          customsValue: value === "" ? null : value,
+          importerType: importer || null,
+          requestedBy: officer.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "That did not work.");
+
+      setChat((c) => [
+        ...c,
+        {
+          role: "assistant",
+          text: data.answer,
+          verified: data.verification?.ok !== false,
+          unsupported: data.verification?.unsupported ?? [],
+          grounded: data.grounded,
+          noAssessmentReason: data.noAssessmentReason ?? null,
+          hsCode: data.hsCode ?? null,
+          model: data.model,
+        },
+      ]);
+    } catch (e) {
+      // The optimistic user turn stays on screen — retyping a question you can
+      // still see is worse than an error line under it.
+      setChatError((e as Error).message);
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
   const a = result?.assessment;
   const it = result?.interpreted;
   const busy = loading !== null;
@@ -311,9 +450,8 @@ export default function Home() {
       <header className="masthead">
         <h1>Customs Compliance Lookup</h1>
         <p>
-          Ask in plain English or fill in the form. Every figure cites its legal source and page —
-          uncertain values are flagged, never guessed. <Link href="/documents">Documents</Link>{" "}
-          <Link href="/settings">Settings</Link>
+          Ask in plain English, fill in the form, or put it to the AI. Every figure cites its legal
+          source and page — uncertain values are flagged, never guessed.
         </p>
       </header>
 
@@ -325,9 +463,138 @@ export default function Home() {
           <button className={`tab ${mode === "form" ? "active" : ""}`} onClick={() => setMode("form")} type="button">
             Use the form
           </button>
+          {/* Only offered when a key is configured and switched on. A tab that
+              always errors is worse than no tab — same rule as the briefing
+              buttons below. */}
+          {ai ? (
+            <button className={`tab ${mode === "ai" ? "active" : ""}`} onClick={() => setMode("ai")} type="button">
+              Ask the AI
+            </button>
+          ) : null}
         </div>
 
-        {mode === "words" ? (
+        {mode === "ai" ? (
+          <div className="chat">
+            <div className="chat-log" aria-live="polite">
+              {chat.length === 0 ? (
+                <div className="chat-empty">
+                  <p>
+                    Ask about an import in your own words, or about the law itself. The engine works
+                    out every figure first — the AI only explains what it produced, and anything it
+                    writes that is not in that result is flagged.
+                  </p>
+                  <ul>
+                    {[
+                      "a used electric motorcycle worth 200,000 for my company",
+                      "what is IDF charged on, and what is exempt?",
+                      "why is there no total for rice?",
+                    ].map((ex) => (
+                      <li key={ex}>
+                        <button type="button" className="chat-example" onClick={() => setAsk(ex)}>
+                          {ex}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                chat.map((m, i) => (
+                  <div key={i} className={`chat-turn ${m.role}`}>
+                    <div className="chat-who">{m.role === "user" ? "You" : "AI"}</div>
+                    <div className="chat-body">
+                      {m.role === "assistant" ? <BriefingBody text={m.text} /> : <p>{m.text}</p>}
+
+                      {m.role === "assistant" && m.grounded === false && m.noAssessmentReason ? (
+                        <p className="chat-note">
+                          No assessment was computed for this question, so the answer is drawn from
+                          the law text only. {m.noAssessmentReason.includes("value") ? "Give a value to get figures." : ""}
+                        </p>
+                      ) : null}
+
+                      {m.role === "assistant" ? (
+                        m.verified ? (
+                          <p className="verify-ok">
+                            Every figure checked back against the engine&apos;s own result
+                            {m.hsCode ? <> · {m.hsCode}</> : null}
+                          </p>
+                        ) : (
+                          <div className="verify-bad">
+                            <strong>Unverified.</strong> These do not appear in the result the engine
+                            produced, so treat them as the model&apos;s own and check them:{" "}
+                            {(m.unsupported ?? []).map((u, j) => (
+                              <span key={j}>
+                                <code>{u}</code>{" "}
+                              </span>
+                            ))}
+                          </div>
+                        )
+                      ) : null}
+                    </div>
+                  </div>
+                ))
+              )}
+
+              {chatBusy ? (
+                <div className="chat-turn assistant">
+                  <div className="chat-who">AI</div>
+                  <div className="chat-body">
+                    <p className="chat-thinking">Assessing, then writing…</p>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {chatError && <div className="error">{chatError}</div>}
+
+            <form
+              className="chat-compose"
+              onSubmit={(e) => {
+                e.preventDefault();
+                sendChat();
+              }}
+            >
+              <textarea
+                value={ask}
+                onChange={(e) => setAsk(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter sends, Shift+Enter is a newline — what a chat box is
+                  // expected to do. Without this the only way to send is the mouse.
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendChat();
+                  }
+                }}
+                placeholder="Ask about an import, or about the law…"
+                rows={2}
+                disabled={chatBusy}
+              />
+              <div className="chat-compose-actions">
+                <button className="go" type="submit" disabled={chatBusy || !ask.trim()}>
+                  {chatBusy ? "Working…" : "Ask"}
+                </button>
+                {chat.length > 0 ? (
+                  <button
+                    className="go secondary"
+                    type="button"
+                    disabled={chatBusy}
+                    onClick={() => {
+                      setChat([]);
+                      setChatError(null);
+                    }}
+                  >
+                    Clear
+                  </button>
+                ) : null}
+              </div>
+            </form>
+
+            <p className="hint">
+              Every figure comes from the deterministic engine, never from the model — and each
+              answer says whether that check passed. Conversations are recorded under{" "}
+              <Link href="/history">History</Link>.
+            </p>
+          </div>
+        ) : mode === "words" ? (
           <form className="lookup" onSubmit={(e) => { e.preventDefault(); assess(words); }} style={{ display: "block" }}>
             <label htmlFor="q">Type a sentence, a word, an HS code — or paste a paragraph from a document</label>
             <textarea
@@ -360,6 +627,9 @@ export default function Home() {
               <button className="go secondary" type="button" disabled={busy} onClick={() => searchLaw(words)}>
                 {loading === "search" ? "Searching…" : "Search the law"}
               </button>
+              <button className="go secondary" type="button" disabled={busy || !dirty} onClick={clearAll}>
+                Clear
+              </button>
               <span className="aside">Assess = work out the charges · Search the law = find this text in the loaded documents</span>
             </div>
           </form>
@@ -386,14 +656,21 @@ export default function Home() {
                 {loading === "assess" ? "Working…" : "Assess"}
               </button>
             </div>
+            <div className="actions">
+              <button className="go secondary" type="button" disabled={busy || !dirty} onClick={clearAll}>
+                Clear
+              </button>
+            </div>
           </form>
         )}
 
-        <p className="hint">
-          Try <code>a used electric motorcycle worth 200,000</code>, <code>2523.29.00</code>,{" "}
-          <code>rice worth 500000</code> (a blocked compound rate) — or paste a legal paragraph and{" "}
-          <strong>Search the law</strong>.
-        </p>
+        {mode === "ai" ? null : (
+          <p className="hint">
+            Try <code>a used electric motorcycle worth 200,000</code>, <code>2523.29.00</code>,{" "}
+            <code>rice worth 500000</code> (a blocked compound rate) — or paste a legal paragraph and{" "}
+            <strong>Search the law</strong>.
+          </p>
+        )}
       </div>
 
       {error && <div className="results"><div className="error">{error}</div></div>}

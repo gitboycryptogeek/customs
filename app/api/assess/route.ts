@@ -3,6 +3,7 @@ import { resolveHsCode } from "@/lib/search";
 import { assess } from "@/lib/assess";
 import { interpret } from "@/lib/interpret";
 import { ensureReady } from "@/lib/startup";
+import { prisma } from "@/lib/db";
 
 // Deterministic assessment endpoint. No trader PII is accepted or logged here —
 // only a plain-English item query / value / importer type. (Never send names,
@@ -44,6 +45,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ interpreted, resolution, assessment: null });
     }
     const assessment = await assess(resolution.hsCode, value, importerType);
+
+    // Recorded so History can offer it back. Best-effort and deliberately not
+    // awaited into the response path: this endpoint's job is the assessment, and
+    // a full disk or a locked database must not turn a correct answer into a 500.
+    //
+    // `total` is stored as the engine gave it — null when a line needed review.
+    // Coercing that to 0 would record "nothing to pay" for "we do not know".
+    prisma.lookup
+      .create({
+        data: {
+          itemQuery: said.itemQuery,
+          hsCode: assessment.hsCode,
+          description: assessment.description ?? null,
+          resolvedVia: resolution.method ?? null,
+          customsValue: value,
+          importerType,
+          total: assessment.total ?? null,
+          totalBlocked: assessment.total == null,
+          lineCount: assessment.lines.length,
+          flagCount: assessment.flags.length,
+          requestedBy: typeof body.requestedBy === "string" && body.requestedBy.trim() ? body.requestedBy.trim() : null,
+        },
+      })
+      .catch((e) => console.error("[assess] could not record the lookup:", (e as Error).message));
+
     return NextResponse.json({ interpreted, resolution, assessment });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
