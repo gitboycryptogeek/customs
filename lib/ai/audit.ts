@@ -70,6 +70,9 @@ export interface AuditResult {
   model: string;
   turns: number;
   inputTokens: number;
+  /** Tokens served from the prompt cache across the run, and tokens written to it. */
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
   /** Set when the loop stopped on a cap rather than because the model finished. */
   truncated: boolean;
@@ -135,6 +138,23 @@ Order findings by severity, highest first.`;
  * The evidence pack is the starting context — what the officer is looking at.
  * Everything after that the model fetches itself.
  */
+/**
+ * Strip cache_control from every content block in the transcript.
+ *
+ * Called before setting the new breakpoint each turn. Without it the markers
+ * accumulate and the fifth turn is rejected for exceeding the four-breakpoint
+ * limit — which would surface as a 400 halfway through an audit, after the model
+ * had already been paid for four turns.
+ */
+function clearCacheMarkers(messages: Anthropic.MessageParam[]): void {
+  for (const m of messages) {
+    if (typeof m.content === "string") continue;
+    for (const block of m.content) {
+      if ("cache_control" in block) delete (block as { cache_control?: unknown }).cache_control;
+    }
+  }
+}
+
 export async function runAudit(pack: EvidencePack, sharedScope?: DocumentScope): Promise<AuditResult> {
   const { key } = resolveKey();
   if (!key) throw new Error("No API key is configured. Add one under Settings.");
@@ -166,6 +186,8 @@ export async function runAudit(pack: EvidencePack, sharedScope?: DocumentScope):
   ];
 
   let inputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheWriteTokens = 0;
   let outputTokens = 0;
   let turns = 0;
   let truncated = false;
@@ -186,6 +208,11 @@ export async function runAudit(pack: EvidencePack, sharedScope?: DocumentScope):
       });
 
       inputTokens += response.usage?.input_tokens ?? 0;
+      // Worth accumulating rather than inferring: if these stay at zero across a
+      // multi-turn run, something is silently invalidating the prefix and the
+      // cache is costing more than it saves.
+      cacheReadTokens += response.usage?.cache_read_input_tokens ?? 0;
+      cacheWriteTokens += response.usage?.cache_creation_input_tokens ?? 0;
       outputTokens += response.usage?.output_tokens ?? 0;
 
       if (response.stop_reason === "refusal") {
@@ -231,6 +258,23 @@ export async function runAudit(pack: EvidencePack, sharedScope?: DocumentScope):
           content: JSON.stringify(call.result),
         });
       }
+      // Cache the history as it grows.
+      //
+      // The system prompt and the tool definitions are already a cached prefix,
+      // but they are the SMALL half: an agentic loop resends the whole transcript
+      // every turn, so by turn 6 most of the input is tool results this run
+      // already paid for. A breakpoint on the newest tool_result makes turn N+1
+      // read turns 1..N from cache instead of re-reading them at full price.
+      //
+      // Rolling, not accumulating: the API allows four breakpoints, and this loop
+      // runs up to eight turns, so the previous turn's breakpoint is removed
+      // before the new one is set. A cache read still matches the longest cached
+      // prefix, so moving the marker forward each turn keeps the whole transcript
+      // behind it eligible.
+      clearCacheMarkers(messages);
+      const last = results[results.length - 1];
+      if (last) last.cache_control = { type: "ephemeral" };
+
       messages.push({ role: "user", content: results });
 
       if (turns === MAX_TURNS - 1) {
@@ -259,6 +303,8 @@ export async function runAudit(pack: EvidencePack, sharedScope?: DocumentScope):
     model: BRIEFING_MODEL,
     turns,
     inputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
     outputTokens,
     truncated,
   };

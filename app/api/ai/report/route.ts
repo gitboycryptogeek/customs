@@ -190,6 +190,8 @@ export async function POST(req: Request) {
         truncated: audit.truncated,
         inputTokens: audit.inputTokens,
         outputTokens: audit.outputTokens,
+        cacheReadTokens: audit.cacheReadTokens,
+        cacheWriteTokens: audit.cacheWriteTokens,
       },
       // The queries themselves, so "what did it actually look at" is answerable
       // on screen rather than only in the database.

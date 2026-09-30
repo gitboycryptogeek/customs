@@ -44,7 +44,14 @@ export function Nav() {
           );
         })}
       </div>
-      <ThemeToggle />
+      <div className="sitenav-right">
+        {/* Baked in at build time by next.config.mjs. An update that appears not
+            to have worked is indistinguishable from one that did without this. */}
+        <span className="sitenav-version" title="Installed version">
+          v{process.env.NEXT_PUBLIC_APP_VERSION ?? "dev"}
+        </span>
+        <ThemeToggle />
+      </div>
     </nav>
   );
 }
