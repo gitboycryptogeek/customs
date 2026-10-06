@@ -114,7 +114,7 @@ offline.
 ```bash
 npm install          # once
 npm run db:fetch     # once — the database is a build output, not in the repo
-npm run dist:win     # -> release/Customs Compliance-Setup-0.3.1.exe
+npm run dist:win     # -> release/Customs Compliance-Setup-0.4.0.exe
 npm run dist:linux   # -> release/*.AppImage (+ .deb)
 npm run dist:mac     # -> release/*.dmg  (must be built on a Mac)
 ```
