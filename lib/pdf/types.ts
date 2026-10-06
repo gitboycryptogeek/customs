@@ -51,8 +51,11 @@ export interface OcrPage {
   height: number;
 }
 
-/** How a document's text was obtained. Recorded so a reader knows what they have. */
-export type ExtractionMethod = "text-layer" | "ocr";
+/**
+ * How a document's text was obtained. Recorded so a reader knows what they have.
+ * The last three are read straight from the file's own structure (lib/office).
+ */
+export type ExtractionMethod = "text-layer" | "ocr" | "docx" | "xlsx" | "csv";
 
 export interface ExtractedDocument {
   pages: PdfPage[];
@@ -68,4 +71,16 @@ export interface ExtractedDocument {
    */
   recoveredWords: number;
   pageCount: number;
+  /**
+   * Search chunks, when the reader knows the document's structure better than
+   * paragraph detection would — a spreadsheet is chunked one row per chunk, with
+   * its column headings attached. Absent for PDFs, which go through the chunker.
+   */
+  chunks?: { text: string; page: number }[];
+  /**
+   * How to cite a position, when "p.N" is not how this document is cited:
+   * `Sheet "Tariff", row 42`. `y` is a line's top edge on the page, as the
+   * column reader reports it. Absent for PDFs.
+   */
+  locate?: (page: number, y?: number) => string;
 }

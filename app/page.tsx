@@ -135,7 +135,8 @@ function Ref({ legalRef, sourceFile, page }: { legalRef: string; sourceFile: str
     return (
       <a className="ref" href={`/api/doc/${encodeURIComponent(sourceFile)}#page=${page}`} target="_blank" rel="noopener noreferrer">
         {legalRef}
-        <span className="pg">↗ p.{page}</span>
+        {/* Word and spreadsheet files are cited by part — a block of rows or a section — not by printed page. */}
+        <span className="pg">↗ {/\.pdf$/i.test(sourceFile) ? "p." : "part "}{page}</span>
       </a>
     );
   }
@@ -696,7 +697,7 @@ export default function Home() {
                     </div>
                     <div className="hitref">
                       <span className="src">{h.sourceTitle}</span>{" — "}
-                      <Ref legalRef={h.page ? `open page ${h.page}` : "no page link"} sourceFile={h.sourceFile} page={h.page} />
+                      <Ref legalRef={h.page ? `open ${h.sourceFile && !/\.pdf$/i.test(h.sourceFile) ? "part" : "page"} ${h.page}` : "no page link"} sourceFile={h.sourceFile} page={h.page} />
                     </div>
                   </div>
                 ))}

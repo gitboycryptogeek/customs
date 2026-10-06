@@ -69,7 +69,15 @@ const CONDITION_SENTENCE =
  * still a tariff schedule — the distinction that matters downstream is what the
  * document contains, with the extraction route recorded alongside.
  */
-export function classify(pageText: string[], scanned: boolean): Classification {
+export function classify(
+  pageText: string[],
+  scanned: boolean,
+  /**
+   * The text came from a spreadsheet (lib/office). Its columns are given, not
+   * inferred, so a short rate table is as clearly a schedule as a long one.
+   */
+  opts: { tabular?: boolean } = {}
+): Classification {
   let hsRateRows = 0;
   let hsMentions = 0;
   let amendmentSentences = 0;
@@ -130,6 +138,22 @@ export function classify(pageText: string[], scanned: boolean): Classification {
             `states measures against the tariff rather than being the tariff, so those go ` +
             `to review rather than becoming rates.`
           : `, and ${hsRateRows} rows carry an HS code and a rate.`),
+      evidence,
+      scanned,
+    };
+  }
+
+  // A spreadsheet of tariff lines. The PDF threshold below exists to tell a
+  // schedule from a circular quoting a few tariff lines in its prose; a
+  // spreadsheet has no prose to quote them in, so a dozen priced rows that make
+  // up most of what carries an HS code are a schedule. Proposals still go to
+  // review like any other.
+  if (opts.tabular && hsRateRows >= 3 && hsRateRows >= hsMentions) {
+    return {
+      docType: "A",
+      reason:
+        `A spreadsheet of tariff lines: ${hsRateRows} rows carry an HS code and a rate, ` +
+        `and nothing in it identifies it as a notice or an Act.`,
       evidence,
       scanned,
     };

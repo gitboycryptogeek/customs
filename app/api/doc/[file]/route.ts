@@ -4,6 +4,11 @@ import { Readable } from "node:stream";
 
 import { NextResponse } from "next/server";
 
+import { prisma } from "@/lib/db";
+import { CONTENT_TYPES, formatOf } from "@/lib/ingest/formats";
+import { readParts } from "@/lib/office";
+import { renderPartsHtml } from "@/lib/office/render";
+
 // Serve a source PDF so a citation can deep-link to its page.
 //
 // Two places hold documents and both have to work through one URL:
@@ -15,6 +20,10 @@ import { NextResponse } from "next/server";
 // viewer downloads the whole file before it can show page 460, and the CET is
 // 577 pages. That is the difference between a citation opening instantly and a
 // citation appearing broken.
+//
+// Word and spreadsheet files are a different matter: a browser shows neither,
+// so they are rendered to an HTML page with one `page=N` anchor per part (see
+// lib/office/render.ts). `?download=1` serves the original file instead.
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +46,7 @@ function bundledDocsDir(): string {
  */
 function resolveDoc(name: string): string | null {
   const safe = basename(name);
-  if (!safe || safe.startsWith(".") || !/\.(pdf|PDF)$/.test(safe)) return null;
+  if (!safe || safe.startsWith(".") || !formatOf(safe)) return null;
 
   for (const dir of [userDocsDir(), bundledDocsDir()]) {
     if (!dir) continue;
@@ -57,14 +66,21 @@ export async function GET(
     return NextResponse.json({ error: "Document not found." }, { status: 404 });
   }
 
+  const format = formatOf(path)!;
+  const download = new URL(req.url).searchParams.has("download");
+
+  if (format !== "pdf" && !download) return officeView(path);
+
   const { size } = statSync(path);
   const headers: Record<string, string> = {
-    "content-type": "application/pdf",
+    "content-type": CONTENT_TYPES[format],
     "accept-ranges": "bytes",
     // Sources are append-only and addressed by name, so a served file never
     // changes underneath a cached copy.
     "cache-control": "private, max-age=3600",
-    "content-disposition": `inline; filename="${basename(path)}"`,
+    "content-disposition": download
+      ? attachment((await originalName(basename(path))) ?? basename(path))
+      : `inline; filename="${basename(path)}"`,
   };
 
   const range = req.headers.get("range");
@@ -87,4 +103,48 @@ export async function GET(
     status: 200,
     headers: { ...headers, "content-length": String(size) },
   });
+}
+
+/**
+ * A Word or spreadsheet file as a page, titled with the name it was added under.
+ * The file is untrusted: the renderer escapes everything, and the CSP forbids
+ * any script or outside load even if something got through.
+ */
+async function officeView(path: string): Promise<Response> {
+  const name = basename(path);
+  const title = (await originalName(name)) ?? name;
+  try {
+    const parts = await readParts(path, formatOf(path) as "docx" | "xlsx" | "csv");
+    // Relative to /api/doc/, and the stored name is a content hash: nothing to escape.
+    const html = renderPartsHtml(parts, title, `${name}?download=1`);
+    return new NextResponse(html, {
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "private, max-age=3600",
+        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
+      },
+    });
+  } catch (err) {
+    return NextResponse.json({ error: `This file could not be read: ${(err as Error).message}` }, { status: 422 });
+  }
+}
+
+/** The filename a document was added under, when the library knows it. */
+async function originalName(stored: string): Promise<string | null> {
+  try {
+    const version = await prisma.sourceVersion.findFirst({
+      where: { sourceFile: stored },
+      select: { originalFilename: true },
+    });
+    return version?.originalFilename ?? null;
+  } catch {
+    // The library being unreadable is no reason not to serve the file.
+    return null;
+  }
+}
+
+/** A download header that survives a non-ASCII filename. */
+function attachment(name: string): string {
+  const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, "_");
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }

@@ -35,7 +35,9 @@ export function parseRate(tail: string): ParsedRate | null {
   if (/^SI$/i.test(t)) return { rate: null, specificRate: null, needsReview: true, isSI: true };
   if (/^Free$/i.test(t)) return { rate: 0, specificRate: null, needsReview: false, isSI: false };
 
-  const av = t.match(/^(\d{1,3})%/);
+  // Decimals too: IDF is 2.5%, and a spreadsheet shows 0.125 formatted as a
+  // percentage as "12.5%". Rejecting those dropped the row outright.
+  const av = t.match(/^(\d{1,3}(?:\.\d{1,4})?)%/);
   if (!av) return null;
   const rate = Number(av[1]) / 100;
 

@@ -8,7 +8,7 @@ import { ensureReady } from "@/lib/startup";
 import { ensureSourceVersion } from "@/lib/ingest/source";
 import { storeUpload, usage, formatBytes, docsDir } from "@/lib/ingest/store";
 import { enqueue, status, cancel, clearFinished } from "@/lib/ingest/worker";
-import { pageCount } from "@/lib/pdf";
+import { countPages, detectFormat, formatName, unsupportedReason } from "@/lib/ingest/formats";
 
 // Adding documents.
 //
@@ -23,12 +23,6 @@ import { pageCount } from "@/lib/pdf";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
-
-/** Refuse anything that is not a PDF, by extension and by magic bytes. */
-function looksLikePdf(name: string, data: Buffer): boolean {
-  if (!/\.pdf$/i.test(name)) return false;
-  return data.subarray(0, 5).toString("latin1") === "%PDF-";
-}
 
 export async function POST(req: Request) {
   try {
@@ -70,8 +64,10 @@ export async function POST(req: Request) {
 
     for (const file of files) {
       const data = Buffer.from(await file.arrayBuffer());
-      if (!looksLikePdf(file.name, data)) {
-        rejected.push({ filename: file.name, reason: "Not a PDF." });
+      // PDF, Word (.docx), Excel (.xlsx) or CSV — by extension and by contents.
+      const format = detectFormat(file.name, data);
+      if (!format) {
+        rejected.push({ filename: file.name, reason: unsupportedReason(file.name) });
         continue;
       }
 
@@ -79,17 +75,17 @@ export async function POST(req: Request) {
       // The title is the filename until something better is known. A reviewer
       // can rename it in the library; inventing one from the text would put an
       // unverified string into every legal citation the document produces.
-      const title = file.name.replace(/\.pdf$/i, "").replace(/[_-]+/g, " ").trim() || stored.name;
+      const title = file.name.replace(/\.(pdf|docx|xlsx|csv)$/i, "").replace(/[_-]+/g, " ").trim() || stored.name;
 
       let pages = 0;
       try {
-        pages = await pageCount(stored.path);
+        pages = await countPages(stored.path);
       } catch (err) {
         // Report why. "Could not be opened" with no reason is useless to a user
         // deciding whether their file is corrupt or the app is broken.
         rejected.push({
           filename: file.name,
-          reason: `Could not be opened as a PDF: ${(err as Error).message}`,
+          reason: `Could not be opened as ${formatName(format)}: ${(err as Error).message}`,
         });
         continue;
       }
@@ -179,7 +175,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json(
         {
           error:
-            "The original PDF for this document is no longer on disk, so it cannot be read again. " +
+            "The original file for this document is no longer on disk, so it cannot be read again. " +
             "Add the file again to replace it.",
         },
         { status: 409 }

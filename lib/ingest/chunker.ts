@@ -43,22 +43,33 @@ export function chunkDocument(pages: PdfPage[], pageText: string[]): TextChunk[]
     const paragraphs =
       geometry && geometry.items.length > 0 ? paragraphsPage(geometry) : splitOnBlankLines(text);
 
-    const usable = paragraphs.filter((p) => p.trim().length >= MIN_CHUNK);
+    const chunks = chunkParagraphs(paragraphs, page);
 
     // If paragraph detection produced nothing usable, keep the page whole
     // rather than dropping it — a page that is hard to segment is still worth
     // being able to find.
-    if (usable.length === 0) {
+    if (chunks.length === 0) {
       const whole = text.replace(/[ \t]+\n/g, "\n").trim();
       if (whole.length >= MIN_CHUNK) out.push({ text: whole, page });
       return;
     }
 
-    for (const paragraph of usable) {
-      for (const piece of capLength(paragraph)) out.push({ text: piece, page });
-    }
+    out.push(...chunks);
   });
 
+  return out;
+}
+
+/**
+ * Chunk paragraphs already separated by their source — a Word document says
+ * where its paragraphs are, so there is nothing to detect.
+ */
+export function chunkParagraphs(paragraphs: string[], page: number): TextChunk[] {
+  const out: TextChunk[] = [];
+  for (const paragraph of paragraphs) {
+    if (paragraph.trim().length < MIN_CHUNK) continue;
+    for (const piece of capLength(paragraph)) out.push({ text: piece, page });
+  }
   return out;
 }
 

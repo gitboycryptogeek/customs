@@ -11,11 +11,11 @@
 // them slower and the machine unusable.
 
 import { prisma } from "../db";
-import { extractDocument } from "../pdf";
-import type { PdfPage } from "../pdf/types";
+import type { ExtractedDocument } from "../pdf/types";
 import { chunkDocument } from "./chunker";
 import { classify } from "./classify";
 import type { Classification } from "./classify";
+import { extractAny } from "./formats";
 import { runParsers } from "./parsers";
 
 export type JobStage = "queued" | "extracting" | "ocr" | "parsing" | "ready" | "failed";
@@ -138,7 +138,7 @@ async function processOne(job: QueuedJob): Promise<void> {
   try {
     await setStatus(id, "extracting");
 
-    const doc = await extractDocument(job.path, {
+    const doc = await extractAny(job.path, {
       signal: controller.signal,
       onProgress: (stage, page, total) => {
         if (cancelled.has(id)) controller.abort();
@@ -154,7 +154,9 @@ async function processOne(job: QueuedJob): Promise<void> {
     });
     update(id, { recoveredWords: doc.recoveredWords });
 
-    const classification: Classification = classify(doc.pageText, doc.method === "ocr");
+    const classification: Classification = classify(doc.pageText, doc.method === "ocr", {
+      tabular: doc.method === "xlsx" || doc.method === "csv",
+    });
     update(id, { docType: classification.docType, reason: classification.reason });
 
     // On a re-read, what the last reading produced has to go before the new
@@ -164,7 +166,7 @@ async function processOne(job: QueuedJob): Promise<void> {
     // Tier 1, and it applies to every document without exception: the text is
     // chunked and page-indexed, so it is searchable and every hit can deep-link
     // back to the page it came from.
-    await storeChunks(id, doc.pages, doc.pageText, doc.meanOcrConfidence);
+    await storeChunks(id, doc);
 
     // Tier 2: only for documents shaped like something a parser understands,
     // and the output goes to staging — never to obligations.
@@ -175,6 +177,7 @@ async function processOne(job: QueuedJob): Promise<void> {
       classification,
       effectiveFrom: job.effectiveFrom,
       title: job.title,
+      locate: doc.locate,
     });
 
     await prisma.sourceVersion.update({
@@ -224,20 +227,18 @@ async function clearDerived(sourceVersionId: string): Promise<void> {
  * By paragraph rather than by page, so a hit returns the provision somebody was
  * looking for instead of the page it happens to sit on. Each chunk still keeps
  * its physical page number, so the citation can open the source PDF in the
- * right place.
+ * right place. A Word or spreadsheet file arrives already chunked by its own
+ * structure — a spreadsheet one row per chunk — and the "page" is the part of
+ * the file the HTML view anchors.
  */
-async function storeChunks(
-  sourceVersionId: string,
-  pages: PdfPage[],
-  pageText: string[],
-  ocrConfidence: number | null
-): Promise<void> {
-  const rows = chunkDocument(pages, pageText).map((c) => ({
+async function storeChunks(sourceVersionId: string, doc: ExtractedDocument): Promise<void> {
+  const chunks = doc.chunks ?? chunkDocument(doc.pages, doc.pageText);
+  const rows = chunks.map((c) => ({
     sourceVersionId,
     sectionRef: `p.${c.page}`,
     text: c.text,
     sourcePage: c.page,
-    ocrConfidence,
+    ocrConfidence: doc.meanOcrConfidence,
     // Marks this as the extractor's, and therefore replaceable by a re-read.
     origin: "extract",
   }));

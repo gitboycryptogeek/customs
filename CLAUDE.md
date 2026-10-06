@@ -297,12 +297,37 @@ staging, review. Three constraints that are not obvious:
 - **Approvals are recorded against a person.** An anonymous approval is not an
   audit trail.
 
+### Word, Excel and CSV
+
+`lib/office/` reads `.docx` (mammoth), `.xlsx` (exceljs) and `.csv` into the same
+`ExtractedDocument` a PDF becomes; `lib/ingest/formats.ts` picks the reader by
+extension and checks the file's bytes agree. Four things to keep:
+
+- **Parts stand in for pages.** A part is up to 50 table rows or one prose
+  section, given synthetic `PdfPage` geometry with a 4-character gutter between
+  columns, so the column reader and every parser work unchanged. The HTML view
+  (`lib/office/render.ts`, served by `/api/doc`) anchors each part as `page=N`,
+  so the existing `#page=N` links land on it.
+- **Cite rows, not parts.** `ExtractedDocument.locate` turns a page and line
+  into `Sheet "Tariff", row 42`; the parsers use it for `legalRef` when present.
+  When absent (every PDF) citations are exactly as before.
+- **Read what the cell displays.** Percent-formatted numbers are multiplied out
+  (`0.25` → `25%`); reading the raw value would make parseRate see a quarter of a
+  percent. Formulas use the cached result; nothing is evaluated.
+- **Never repeat a data row as a header.** The first row is repeated at the top
+  of each part only if it names two or more columns and holds no HS code —
+  otherwise each part would stage the same tariff line again.
+
+A spreadsheet whose rows are mostly HS-code-and-rate is classified A at any size
+(`classify(..., { tabular: true })`); the 20-row threshold exists to tell a PDF
+schedule from prose quoting a few tariff lines, and a spreadsheet has no prose.
+
 ### Re-reading and removing
 
 Two operations act on a document already in the library, and the line between
 them is the line rule 3 draws.
 
-**Re-read** (`PATCH /api/ingest`) reads the same PDF again with the current
+**Re-read** (`PATCH /api/ingest`) reads the same file again with the current
 toolchain — for when the extractor improved, not the document. The source
 version is untouched: same id, same content hash, same dates. Only what was
 derived from reading it is replaced, and rule 3 protects the document and the

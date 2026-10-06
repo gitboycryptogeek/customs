@@ -41,6 +41,8 @@ export interface ScheduleRow {
   needsReview: boolean;
   description: string;
   page: number;
+  /** Top edge of the row on its page, so a spreadsheet row can be cited by number. */
+  y: number;
   /** The whole source row, so a reviewer sees exactly what was read. */
   snippet: string;
   /** 0..1, how cleanly this row parsed. Not a claim about legal correctness. */
@@ -183,6 +185,7 @@ export function parseSchedule(pages: PdfPage[]): ScheduleParseResult {
         needsReview: parsed.needsReview || parsed.rate === null,
         description,
         page: page.page,
+        y: row.y,
         snippet,
         confidence: scoreRow(parsed.rate !== null, description.length > 0, roles),
       });

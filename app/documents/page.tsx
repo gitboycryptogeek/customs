@@ -80,6 +80,9 @@ const STAGE_LABEL: Record<string, string> = {
   failed: "Failed",
 };
 
+/** What the server reads. It checks each file's contents as well; this only spares a wasted upload. */
+const READABLE = /\.(pdf|docx|xlsx|csv)$/i;
+
 function fmtDate(d: string | null): string {
   return d ? new Date(d).toISOString().slice(0, 10) : "—";
 }
@@ -159,11 +162,12 @@ export default function Documents() {
 
   function addFiles(list: FileList | null) {
     if (!list) return;
-    const pdfs = Array.from(list).filter((f) => /\.pdf$/i.test(f.name));
-    setFiles((prev) => [...prev, ...pdfs]);
+    const readable = Array.from(list).filter((f) => READABLE.test(f.name));
+    const skipped = list.length - readable.length;
+    setFiles((prev) => [...prev, ...readable]);
     setNotice(
-      list.length > pdfs.length
-        ? `${list.length - pdfs.length} file${list.length - pdfs.length === 1 ? "" : "s"} skipped — only PDFs can be read.`
+      skipped > 0
+        ? `${skipped} file${skipped === 1 ? "" : "s"} skipped — only PDF, Word (.docx), Excel (.xlsx) and CSV files can be read.`
         : null
     );
   }
@@ -327,7 +331,7 @@ export default function Documents() {
                   {pendingRemoval.stagedRows > 0 && (
                     <li>{pendingRemoval.stagedRows} suggestion{pendingRemoval.stagedRows === 1 ? "" : "s"}, reviewed or not</li>
                   )}
-                  <li>{pendingRemoval.fileRemoved ? "the stored PDF" : "the library entry only — the PDF ships with the app and stays"}</li>
+                  <li>{pendingRemoval.fileRemoved ? "the stored file" : "the library entry only — the PDF ships with the app and stays"}</li>
                 </ul>
                 {pendingRemoval.reviewed && (
                   <p className="warn">
@@ -375,15 +379,15 @@ export default function Documents() {
             tabIndex={0}
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") fileInput.current?.click(); }}
           >
-            <strong>Drop PDFs here, or click to choose them.</strong>
+            <strong>Drop PDF, Word, Excel or CSV files here, or click to choose them.</strong>
             <span>
-              A hundred at a time is fine. Documents with a text layer take seconds; a scan is read a
-              page at a time, at roughly two to four seconds a page.
+              A hundred at a time is fine. Word, Excel and CSV files and PDFs with a text layer take
+              seconds; a scanned PDF is read a page at a time, at roughly two to four seconds a page.
             </span>
             <input
               ref={fileInput}
               type="file"
-              accept="application/pdf,.pdf"
+              accept=".pdf,.docx,.xlsx,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
               multiple
               hidden
               onChange={(e) => addFiles(e.target.files)}

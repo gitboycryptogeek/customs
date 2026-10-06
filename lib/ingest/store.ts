@@ -38,11 +38,15 @@ export interface StoredFile {
  * Written to a temporary name and renamed into place, so an interrupted upload
  * can never leave a half-written PDF that later looks like a real document and
  * parses into nonsense.
+ *
+ * The extension is kept, because it is how the file is later read and served:
+ * `<hash>.xlsx` goes to the spreadsheet reader, `<hash>.pdf` to pdf.js. The
+ * caller has already checked the name against the file's bytes.
  */
 export async function storeUpload(data: Buffer, originalName: string): Promise<StoredFile> {
   const dir = docsDir();
   const hash = sha256Buffer(data);
-  const ext = extname(originalName).toLowerCase() === ".pdf" ? ".pdf" : ".pdf";
+  const ext = extname(originalName).toLowerCase() || ".pdf";
   const name = `${hash}${ext}`;
   const path = join(dir, name);
 

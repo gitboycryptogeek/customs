@@ -195,7 +195,7 @@ function ReviewQueue() {
                       rel="noopener noreferrer"
                     >
                       {row.document.title}
-                      <span className="pg">↗ p.{row.sourcePage}</span>
+                      <span className="pg">↗ {/\.pdf$/i.test(row.document.sourceFile) ? "p." : "part "}{row.sourcePage}</span>
                     </a>
                   ) : (
                     <span className="legal">{row.document.title}</span>

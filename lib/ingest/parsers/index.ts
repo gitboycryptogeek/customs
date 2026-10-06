@@ -25,6 +25,12 @@ export interface ParserContext {
   classification: Classification;
   effectiveFrom: Date;
   title: string;
+  /**
+   * How to cite a position in a Word or spreadsheet file — `Sheet "Tariff",
+   * row 42` rather than a page number. Absent for PDFs, whose citations are
+   * unchanged.
+   */
+  locate?: (page: number, y?: number) => string;
 }
 
 /** Shape of a proposed obligation, stored as JSON on the staged row. */
@@ -99,7 +105,9 @@ async function stageSchedule(ctx: ParserContext): Promise<number> {
       rate: r.rate,
       specificRate: r.specificRate,
       basis: "customs_value",
-      legalRef: `${ctx.title}, tariff ${r.hsCode}`,
+      legalRef: ctx.locate
+        ? `${ctx.title}, tariff ${r.hsCode} (${ctx.locate(r.page, r.y)})`
+        : `${ctx.title}, tariff ${r.hsCode}`,
       sourcePage: r.page,
       needsReview: r.needsReview,
       description: r.description,
@@ -166,7 +174,7 @@ async function stageConditions(ctx: ParserContext): Promise<number> {
       hsPrefix: c.hsPrefix,
       conditionType: c.conditionType,
       detail: c.detail,
-      legalRef: `${ctx.title}, p.${c.page}`,
+      legalRef: ctx.locate ? `${ctx.title}, ${ctx.locate(c.page)}` : `${ctx.title}, p.${c.page}`,
       sourcePage: c.page,
       effectiveFrom: ctx.effectiveFrom.toISOString(),
     } satisfies StagedCondition),

@@ -24,7 +24,8 @@ can click to open.
 - **Search the law.** Paste a paragraph (e.g. copied from the Finance Act) and hit
   *Search the law* to find where that text appears across the loaded documents —
   each match links straight to its page in the PDF.
-- **Add your own documents.** Drop in a folder of PDFs from inside the app. They
+- **Add your own documents.** Drop in PDFs, Word (.docx), Excel (.xlsx) or CSV
+  files from inside the app. They
   are read, classified, OCR'd if scanned, and made searchable — see
   [Adding documents](#adding-documents-in-the-app).
 - **Answers in plain English.** Every result opens with a short summary anyone can
@@ -222,7 +223,7 @@ is deliberate:
 
 | Tier | Applies to | Automatic? |
 |---|---|---|
-| **Searchable and citable** — hashed, classified, OCR'd if scanned, chunked by provision, page-indexed | **every PDF** | yes |
+| **Searchable and citable** — hashed, classified, OCR'd if scanned, chunked by provision, page-indexed | **every document** | yes |
 | **Rate and condition extraction** — HS prefix, rate, basis | documents shaped like a schedule or notice | **proposed only** |
 | **Legal interpretation** — which rule an amendment changes | nothing | never |
 
@@ -236,6 +237,28 @@ it safe to run a generic parser over documents nobody has inspected.
 Speed: a PDF with a text layer takes seconds. A scan is read a page at a time at
 roughly two to four seconds a page, so a 300-page Act is 15–20 minutes. It runs
 in the background with progress and can be cancelled.
+
+### Word, Excel and CSV files
+
+`.docx`, `.xlsx` and `.csv` go through exactly the same pipeline — classified,
+searchable, and parsed into the same review queue. They are read from the file's
+own structure (`lib/office/`), so a spreadsheet's columns are given rather than
+guessed, and that makes a rate table in Excel the most reliable kind of schedule
+to add.
+
+- **Citations point at rows, not pages.** A rate read from a spreadsheet cites
+  `Sheet "Tariff", row 42`; a Word table cites `table 1, row 3`; prose cites its
+  section and paragraph numbers.
+- **Clicking a citation opens the file as a page** in the browser, at the part
+  cited, with source row numbers printed beside each row. The original file is a
+  click away ("Download the original file").
+- **What a cell shows is what is read.** A rate stored as `0.25` and formatted as
+  a percentage reads as `25%`. Formulas are read by the value Excel last
+  calculated; nothing is recalculated.
+- **CSV** may be comma-, semicolon- or tab-separated, in UTF-8 or the Windows
+  encoding Excel uses for plain "CSV".
+- Older `.doc` and `.xls` files are refused with a message asking for them to be
+  saved as `.docx` / `.xlsx`.
 
 Documents you add are stored by content hash in a per-user folder that survives
 updates, so re-adding the same file is a no-op.
